@@ -1,22 +1,22 @@
 import { getConnection } from '../config/database.js';
 import oracledb from 'oracledb';
 
-const getUser = async (body) => {
+const USER_TABLE = process.env.DB_USER_TABLE || 'WEBPORTAL.USUARIO';
+
+const getUser = async (username) => {
     let connection;
     try {
         connection = await getConnection();
         
         const sql = `
             SELECT codusu, nomusu, clave, stsusu, cambioclv, codperfil
-            FROM webamp.usuario_amp
-            WHERE codusu = :username AND stsusu = 'ACT' AND clave = :password
+            FROM ${USER_TABLE}
+            WHERE codusu = :username AND stsusu = 'ACT'
         `;
 
         const result = await connection.execute(      
             sql, 
-            {   username: body.username,
-                password: body.password
-            }, 
+            { username }, 
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
         
@@ -36,21 +36,28 @@ const getUser = async (body) => {
     }
 };
 
-const updatePassword = async (username, newPassword) => {
+const updatePassword = async (username, hashedPassword) => {
     let connection;
     try {
         connection = await getConnection();
         const sql = `
-            UPDATE webamp.usuario_amp 
-            SET CLAVE = :newPassword, CAMBIOCLV = 'S' 
+            UPDATE ${USER_TABLE} 
+            SET CLAVE = :hashedPassword, CAMBIOCLV = 'S' 
             WHERE CODUSU = :username
         `;
-        await connection.execute(sql, { username, newPassword }, { autoCommit: true });
-        return { success: true };
+        const result = await connection.execute(sql, { username, hashedPassword }, { autoCommit: true });
+        return { success: result.rowsAffected === 1 };
     } catch (err) {
-        return { error: err.message };
+        console.error("Error al actualizar clave:", err);
+        return { error: "Error en la base de datos al actualizar la clave" };
     } finally {
-        if (connection) await connection.close();
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (e) {
+                console.error("Error al cerrar conexión en updatePassword:", e);
+            }
+        }
     }
 };
 
