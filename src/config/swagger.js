@@ -216,6 +216,150 @@ export const openApiSpec = {
         },
       },
     },
+    "/apixportal/api/v1/auth/forgot-password": {
+      post: {
+        tags: ["Recuperación de Contraseña"],
+        summary: "Solicitar enlace de recuperación de contraseña por correo (Token 72h)",
+        description: "Envía un correo electrónico con un enlace seguro y token JWT con vigencia de 72 horas para restablecer la contraseña.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email"],
+                properties: {
+                  email: { type: "string", example: "admin@constitucion.com", description: "Correo electrónico o nombre de usuario registrado" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: "Enlace enviado o respuesta neutral de seguridad.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean", example: true },
+                    message: { type: "string", example: "Se ha enviado un enlace de recuperación a su correo electrónico. Válido por 72 horas." }
+                  }
+                }
+              }
+            }
+          },
+          400: {
+            description: "Parámetro de correo inválido o usuario sin correo registrado."
+          }
+        }
+      }
+    },
+    "/apixportal/api/v1/auth/verify-reset-token": {
+      post: {
+        tags: ["Recuperación de Contraseña"],
+        summary: "Verificar validez de token de recuperación de 72 horas",
+        description: "Verifica que el token de recuperación no haya expirado y no se encuentre en la lista de revocación.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["token"],
+                properties: {
+                  token: { type: "string", example: "eyJhbGciOiJIUzI1NiIsIn..." }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: "Token válido.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean", example: true },
+                    data: {
+                      type: "object",
+                      properties: {
+                        valid: { type: "boolean", example: true },
+                        username: { type: "string", example: "admin" },
+                        nombre: { type: "string", example: "Administrador Portal" },
+                        email: { type: "string", example: "admin@constitucion.com" }
+                      }
+                    },
+                    message: { type: "string", example: "Token de recuperación válido." }
+                  }
+                }
+              }
+            }
+          },
+          401: {
+            description: "Token inválido, expirado o ya revocado."
+          }
+        }
+      }
+    },
+    "/apixportal/api/v1/auth/reset-password": {
+      post: {
+        tags: ["Recuperación de Contraseña"],
+        summary: "Restablecer contraseña usando token de 72h e iniciar sesión",
+        description: "Valida el token de recuperación de 72 horas, actualiza la contraseña con hash bcrypt en la BD (fijando CAMBIOCLV = 'N'), invalida el token de recuperación y emite un token JWT definitivo con sesión activa.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["token", "newPassword"],
+                properties: {
+                  token: { type: "string", example: "eyJhbGciOiJIUzI1NiIsIn..." },
+                  newPassword: { type: "string", example: "MiNuevaClaveSegura2026!" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: "Contraseña restablecida exitosamente y sesión iniciada.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    status: { type: "boolean", example: true },
+                    token: { type: "string", example: "eyJhbGciOiJIUzI1NiIsIn..." },
+                    expiresIn: { type: "integer", example: 28800 },
+                    data: {
+                      type: "object",
+                      properties: {
+                        username: { type: "string", example: "admin" },
+                        nombre: { type: "string", example: "Administrador Portal" },
+                        role: { type: "string", example: "ADMIN" },
+                        email: { type: "string", example: "admin@constitucion.com" }
+                      }
+                    },
+                    message: { type: "string", example: "Contraseña restablecida exitosamente. Sesión iniciada." }
+                  }
+                }
+              }
+            }
+          },
+          400: {
+            description: "Contraseña menor a 6 caracteres o token faltante."
+          },
+          401: {
+            description: "Token inválido, expirado o ya utilizado."
+          }
+        }
+      }
+    },
     "/apixportal/api/v1/auth/update-password": {
       post: {
         tags: ["Autenticación"],

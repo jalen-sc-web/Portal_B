@@ -3,15 +3,15 @@ import oracledb from "oracledb";
 
 const USER_TABLE = process.env.DB_USER_TABLE || "LOCALWEBPORTAL.USUARIO";
 
-const getUser = async (username, { onlyActive = true } = {}) => {
+const getUser = async (identifier, { onlyActive = true } = {}) => {
   let connection;
   try {
     connection = await getConnection();
 
     let sql = `
-            SELECT codusu, nomusu, clave, stsusu, cambioclv, codperfil
+            SELECT codusu, nomusu, clave, stsusu, cambioclv, codperfil, email
             FROM ${USER_TABLE}
-            WHERE codusu = :username
+            WHERE (LOWER(codusu) = LOWER(:identifier) OR LOWER(email) = LOWER(:identifier))
         `;
     if (onlyActive) {
       sql += ` AND stsusu = 'ACT'`;
@@ -19,7 +19,7 @@ const getUser = async (username, { onlyActive = true } = {}) => {
 
     const result = await connection.execute(
       sql,
-      { username },
+      { identifier: String(identifier).trim() },
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
@@ -43,6 +43,7 @@ const createUser = async ({
   nombre,
   hashedPassword,
   role = "ASEGURADO",
+  email = null,
   requireChange = true,
 }) => {
   let connection;
@@ -50,12 +51,12 @@ const createUser = async ({
     connection = await getConnection();
     const cambioclv = requireChange ? "S" : "N";
     const sql = `
-            INSERT INTO ${USER_TABLE} (CODUSU, NOMUSU, CLAVE, STSUSU, CAMBIOCLV, CODPERFIL)
-            VALUES (:username, :nombre, :hashedPassword, 'ACT', :cambioclv, :role)
+            INSERT INTO ${USER_TABLE} (CODUSU, NOMUSU, CLAVE, STSUSU, CAMBIOCLV, CODPERFIL, EMAIL)
+            VALUES (:username, :nombre, :hashedPassword, 'ACT', :cambioclv, :role, :email)
         `;
     const result = await connection.execute(
       sql,
-      { username, nombre, hashedPassword, cambioclv, role },
+      { username, nombre, hashedPassword, cambioclv, role, email },
       { autoCommit: true },
     );
     return { success: result.rowsAffected === 1 };
@@ -82,7 +83,7 @@ const updatePassword = async (username, hashedPassword, options = {}) => {
     const sql = `
             UPDATE ${USER_TABLE} 
             SET CLAVE = :hashedPassword, CAMBIOCLV = :requireChange, STSUSU = :stsusu 
-            WHERE CODUSU = :username
+            WHERE LOWER(CODUSU) = LOWER(:username)
         `;
     const result = await connection.execute(
       sql,

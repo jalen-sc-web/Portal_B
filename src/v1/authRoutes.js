@@ -11,6 +11,11 @@ router
     .get("/me", verifyToken, authController.getMe)
     .post("/logout", verifyToken, authController.logout)
 
+    // Recuperación de contraseña por correo SMTP (Token de 72h)
+    .post("/forgot-password", authController.forgotPassword)
+    .post("/verify-reset-token", authController.verifyResetToken)
+    .post("/reset-password", authController.resetPassword)
+
     // Cambio y establecimiento de contraseñas
     .post("/update-password", verifyToken, authController.changePassword)
     .post("/set-password", verifyToken, authController.setPassword)

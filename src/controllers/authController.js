@@ -109,13 +109,60 @@ const setPassword = async (req, res, next) => {
     }
 };
 
+const forgotPassword = async (req, res, next) => {
+    try {
+        const identifier = req.body.email || req.body.identifier || req.body.username;
+        const result = await authService.requestPasswordReset(identifier);
+
+        return res.status(200).json({
+            status: true,
+            message: result.message
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const verifyResetToken = async (req, res, next) => {
+    try {
+        const token = req.body.token || req.query.token;
+        const result = await authService.verifyResetToken(token);
+
+        return res.status(200).json({
+            status: true,
+            data: result,
+            message: "Token de recuperación válido."
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const resetPassword = async (req, res, next) => {
+    try {
+        const { token, newPassword } = req.body;
+        const result = await authService.resetPasswordWithToken({ token, newPassword });
+
+        return res.status(200).json({
+            status: true,
+            token: result.token,
+            expiresIn: result.expiresIn,
+            data: result.user,
+            message: result.message
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 const createUser = async (req, res, next) => {
     try {
-        const { username, nombre, role, tempPassword } = req.body;
+        const { username, nombre, role, email, tempPassword } = req.body;
         const result = await authService.createUserByAdmin({
             username,
             nombre,
             role,
+            email,
             tempPassword
         });
 
@@ -125,6 +172,7 @@ const createUser = async (req, res, next) => {
                 username: result.username,
                 nombre: result.nombre,
                 role: result.role,
+                email: result.email,
                 tempPassword: result.tempPassword
             },
             message: result.message
@@ -172,6 +220,9 @@ export default {
     logout,
     changePassword,
     setPassword,
+    forgotPassword,
+    verifyResetToken,
+    resetPassword,
     createUser,
     adminResetPassword,
     emergencyOverridePassword
