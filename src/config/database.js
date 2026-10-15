@@ -18,10 +18,12 @@ if (process.env.ORACLE_CLIENT_DIR) {
     console.log('📦 Cliente Oracle operando en Thin Mode nativo.');
 }
 
+const serviceName = process.env.SERVICE_NAME_BD || process.env.NAME || process.env.NAME_BD || 'QA';
+
 const dbConfig = {
     user: process.env.USER_BD,
     password: process.env.PASSWORD_BD,
-    connectString: `${process.env.SERVER_BD}:${process.env.PORT_BD}/${process.env.NAME}`,
+    connectString: `${process.env.SERVER_BD}:${process.env.PORT_BD}/${serviceName}`,
     poolMin: Number(process.env.DB_POOL_MIN) || 2,
     poolMax: Number(process.env.DB_POOL_MAX) || 20,
     poolIncrement: 1,
