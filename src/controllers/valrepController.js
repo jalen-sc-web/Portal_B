@@ -1,129 +1,74 @@
-import Valrep from '../db/Valrep.js';
+import valrepService from '../services/valrepService.js';
 
-const getCountry = async (req, res) => {
-    const country = await Valrep.getCountry();
-    if (country.permissionError) {
-        return res
-            .status(403)
-            .send({
-                status: false,
-                message: country.permissionError
-            });
-    }
-    if (country.error) {
-        return res
-            .status(500)
-            .send({
-                status: false,
-                message: country.error
-            });
-    }
-    return res
-        .status(200)
-        .send({
-            status: true,
-            country: country
-        });
-}
-
-const getState = async (req, res) => {
-    const state = await Valrep.getState(req.body);
-    if (state.permissionError) {
-        return res
-            .status(403)
-            .send({
-                status: false,
-                message: state.permissionError
-            });
-    }
-    if (state.error) {
-        return res
-            .status(500)
-            .send({
-                status: false,
-                message: state.error
-            });
-    }
-    return res
-        .status(200)
-        .send({
-            status: true,
-            state: state
-        });
-}
-
-const getCity = async (req, res) => {
-    const city = await Valrep.getCity(req.body);
-    if (city.permissionError) {
-        return res
-            .status(403)
-            .send({
-                status: false,
-                message: city.permissionError
-            });
-    }
-    if (city.error) {
-        return res
-            .status(500)
-            .send({
-                status: false,
-                message: city.error
-            });
-    }
-    return res
-        .status(200)
-        .send({
-            status: true,
-            city: city
-        });
-}
-
-const getMunicipality = async (req, res) => {
-    const municipality = await Valrep.getMunicipality(req.body);
-    if (municipality.permissionError) {
-        return res
-            .status(403)
-            .send({
-                status: false,
-                message: municipality.permissionError
-            });
-    }
-    if (municipality.error) {
-        return res
-            .status(500)
-            .send({
-                status: false,
-                message: municipality.error
-            });
-    }
-    return res
-        .status(200)
-        .send({
-            status: true,
-            municipality: municipality
-        });
-}
-
-const getLval = async (req, res) => {
+const getCountry = async (req, res, next) => {
     try {
-        const lval = await Valrep.getLval(req.body);
-
-        if (lval.error) {
-            return res.status(500).send({
-                status: false,
-                message: lval.error
-            });
-        }
-
-        return res.status(200).send({
+        const data = await valrepService.getCountries();
+        return res.status(200).json({
             status: true,
-            lval: lval
+            data,
+            message: "Países obtenidos exitosamente."
         });
     } catch (error) {
-        return res.status(500).send({
-            status: false,
-            message: 'Ocurrió un error en el servidor.'
+        next(error);
+    }
+};
+
+const getState = async (req, res, next) => {
+    try {
+        const codpais = req.query.codpais || req.body?.codpais;
+        const data = await valrepService.getStates(codpais);
+        return res.status(200).json({
+            status: true,
+            data,
+            message: "Estados obtenidos exitosamente."
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getCity = async (req, res, next) => {
+    try {
+        const codpais = req.query.codpais || req.body?.codpais;
+        const codestado = req.query.codestado || req.body?.codestado;
+        const data = await valrepService.getCities(codpais, codestado);
+        return res.status(200).json({
+            status: true,
+            data,
+            message: "Ciudades obtenidas exitosamente."
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getMunicipality = async (req, res, next) => {
+    try {
+        const codpais = req.query.codpais || req.body?.codpais;
+        const codestado = req.query.codestado || req.body?.codestado;
+        const codciudad = req.query.codciudad || req.body?.codciudad;
+        const data = await valrepService.getMunicipalities(codpais, codestado, codciudad);
+        return res.status(200).json({
+            status: true,
+            data,
+            message: "Municipios obtenidos exitosamente."
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getLval = async (req, res, next) => {
+    try {
+        const tipolval = req.query.tipolval || req.body?.tipolval;
+        const data = await valrepService.getLvals(tipolval);
+        return res.status(200).json({
+            status: true,
+            data,
+            message: "Lista de valores obtenida exitosamente."
+        });
+    } catch (error) {
+        next(error);
     }
 };
 
@@ -131,6 +76,6 @@ export default {
     getCountry,
     getState,
     getCity,
-    getMunicipality, 
+    getMunicipality,
     getLval
-}
+};

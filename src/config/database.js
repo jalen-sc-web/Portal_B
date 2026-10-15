@@ -1,26 +1,31 @@
 import oracledb from 'oracledb';
 import 'dotenv/config';
 
-try {
-    oracledb.initOracleClient();
-    
-    oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
-    oracledb.fetchAsString = [oracledb.CLOB]; 
-    oracledb.fetchAsBuffer = [oracledb.BLOB]; 
-    console.log('Cliente Oracle inicializado en Thick Mode y configurado correctamente.');
-} catch (err) {
-    console.error('Error al inicializar/configurar el cliente Oracle:', err);
-    process.exit(1); 
+// Configuraciones globales de oracledb
+oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+oracledb.fetchAsString = [oracledb.CLOB]; 
+oracledb.fetchAsBuffer = [oracledb.BLOB]; 
+
+// Inicialización de Thick Mode solo si está explícitamente configurado; de lo contrario opera en Thin Mode nativo
+if (process.env.ORACLE_CLIENT_DIR) {
+    try {
+        oracledb.initOracleClient({ libDir: process.env.ORACLE_CLIENT_DIR });
+        console.log('📦 Cliente Oracle inicializado en Thick Mode.');
+    } catch (err) {
+        console.warn('⚠️ No se pudo inicializar en Thick Mode, continuando en Thin Mode:', err.message);
+    }
+} else {
+    console.log('📦 Cliente Oracle operando en Thin Mode nativo.');
 }
 
 const dbConfig = {
     user: process.env.USER_BD,
     password: process.env.PASSWORD_BD,
     connectString: `${process.env.SERVER_BD}:${process.env.PORT_BD}/${process.env.NAME}`,
-    poolMin: 1,
-    poolMax: 50,
+    poolMin: Number(process.env.DB_POOL_MIN) || 2,
+    poolMax: Number(process.env.DB_POOL_MAX) || 20,
     poolIncrement: 1,
-    poolTimeout: 5,  
+    poolTimeout: Number(process.env.DB_POOL_TIMEOUT) || 60,  
     queueTimeout: 30000
 };
 
@@ -52,19 +57,25 @@ export async function getConnection() {
     }
 }
 
-export async function closePoolAndExit() {
+export async function closePool() {
     if (oraclePool) {
-        console.log('\nCerrando pool de conexiones...');
+        console.log('Cerrando pool de conexiones Oracle...');
         try {
             await oraclePool.close(10);
+            oraclePool = null;
             console.log('Pool de conexiones a la base de datos Oracle cerrado.');
-            process.exit(0);
         } catch (err) {
             console.error('❌ Error al cerrar el pool de conexiones:', err);
-            process.exit(1);
+            throw err;
         }
-    } else {
-        console.log('No hay pool de conexiones Oracle para cerrar.');
+    }
+}
+
+export async function closePoolAndExit() {
+    try {
+        await closePool();
         process.exit(0);
+    } catch (err) {
+        process.exit(1);
     }
 }
