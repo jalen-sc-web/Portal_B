@@ -29,7 +29,7 @@ export const loginUser = async ({ username, password }) => {
         throw error;
     }
 
-    if (user.CAMBIOCLV === 'N') {
+    if (user.CAMBIOCLV === 'S') {
         return {
             requireChange: true,
             message: "Debe actualizar su contraseña obligatoriamente."
@@ -88,7 +88,7 @@ export const changeUserPassword = async ({ username, currentPassword, newPasswor
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    const updateResult = await Auth.updatePassword(username, hashedPassword);
+    const updateResult = await Auth.updatePassword(username, hashedPassword, { requireChange: false });
     if (updateResult.error || !updateResult.success) {
         const error = new Error(updateResult.error || "No se pudo actualizar la contraseña.");
         error.statusCode = 500;
@@ -99,7 +99,109 @@ export const changeUserPassword = async ({ username, currentPassword, newPasswor
     return { message: "Clave actualizada exitosamente." };
 };
 
+export const adminResetPassword = async ({ targetUsername, tempPassword }) => {
+    if (!targetUsername) {
+        const error = new Error("El campo targetUsername es requerido.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    const result = await Auth.getUser(targetUsername);
+    if (result.error || !result.data) {
+        const error = new Error("Usuario destino no encontrado.");
+        error.statusCode = 404;
+        error.isOperational = true;
+        throw error;
+    }
+
+    // Si no se proporcionó clave temporal, generar una aleatoria segura
+    let finalTempPassword = tempPassword;
+    if (!finalTempPassword || typeof finalTempPassword !== 'string' || finalTempPassword.trim().length === 0) {
+        const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$';
+        let generated = '';
+        for (let i = 0; i < 10; i++) {
+            generated += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        finalTempPassword = generated;
+    } else if (finalTempPassword.length < 6) {
+        const error = new Error("La contraseña temporal debe tener al menos 6 caracteres.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(finalTempPassword, salt);
+
+    // Se actualiza con requireChange: true (CAMBIOCLV = 'N')
+    const updateResult = await Auth.updatePassword(targetUsername, hashedPassword, {
+        requireChange: true,
+        status: 'ACT'
+    });
+
+    if (updateResult.error || !updateResult.success) {
+        const error = new Error(updateResult.error || "No se pudo resetear la contraseña del usuario.");
+        error.statusCode = 500;
+        error.isOperational = true;
+        throw error;
+    }
+
+    return {
+        targetUsername,
+        tempPassword: finalTempPassword,
+        message: "Contraseña reseteada exitosamente. El usuario deberá cambiarla obligatoriamente al iniciar sesión."
+    };
+};
+
+export const emergencyOverridePassword = async ({ username, newPassword }) => {
+    if (!username || !newPassword) {
+        const error = new Error("Los campos username y newPassword son requeridos.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+        const error = new Error("La nueva contraseña debe tener al menos 6 caracteres.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    const result = await Auth.getUser(username);
+    if (result.error || !result.data) {
+        const error = new Error("Usuario no encontrado.");
+        error.statusCode = 404;
+        error.isOperational = true;
+        throw error;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Override de emergencia restaura cuenta activa y clave vigente
+    const updateResult = await Auth.updatePassword(username, hashedPassword, {
+        requireChange: false,
+        status: 'ACT'
+    });
+
+    if (updateResult.error || !updateResult.success) {
+        const error = new Error(updateResult.error || "No se pudo actualizar la contraseña.");
+        error.statusCode = 500;
+        error.isOperational = true;
+        throw error;
+    }
+
+    return {
+        username,
+        message: "Contraseña actualizada exitosamente vía llave maestra de emergencia."
+    };
+};
+
 export default {
     loginUser,
-    changeUserPassword
+    changeUserPassword,
+    adminResetPassword,
+    emergencyOverridePassword
 };

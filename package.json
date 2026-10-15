@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node ./src/portal.js",
-    "dev": "nodemon ./src/portal.js"
+    "dev": "nodemon ./src/portal.js",
+    "hash-password": "node ./scripts/hash-password.js"
   },
   "keywords": [],
   "author": "",

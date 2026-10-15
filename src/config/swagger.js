@@ -22,6 +22,12 @@ export const openApiSpec = {
         scheme: 'bearer',
         bearerFormat: 'JWT',
         description: 'Ingrese el token JWT obtenido en /login con el formato: Bearer <token>'
+      },
+      recoveryKeyAuth: {
+        type: 'apiKey',
+        in: 'header',
+        name: 'x-recovery-key',
+        description: 'Llave secreta de rescate configurada en ADMIN_RECOVERY_KEY del .env'
       }
     }
   },
@@ -107,6 +113,96 @@ export const openApiSpec = {
           },
           '401': {
             description: 'Token inválido o contraseña actual incorrecta.'
+          }
+        }
+      }
+    },
+    '/apixportal/api/v1/auth/admin/reset-password': {
+      post: {
+        tags: ['Administración de Usuarios'],
+        summary: 'Reseteo administrativo de clave a otro usuario',
+        security: [{ bearerAuth: [] }],
+        description: 'Permite a un usuario con rol ADMIN asignar una clave temporal a otro usuario. La cuenta queda configurada con CAMBIOCLV = S para forzar el cambio en su próximo inicio de sesión.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['targetUsername'],
+                properties: {
+                  targetUsername: { type: 'string', example: 'jperez', description: 'Nombre de usuario al que se le cambiará la clave' },
+                  tempPassword: { type: 'string', example: 'TempKey#2026', description: 'Opcional. Si se omite, el backend genera una clave aleatoria segura' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Contraseña reseteada exitosamente. Devuelve la clave temporal asignada.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'boolean', example: true },
+                    targetUsername: { type: 'string', example: 'jperez' },
+                    tempPassword: { type: 'string', example: 'xK9#mQ2$aP' },
+                    message: { type: 'string', example: 'Contraseña reseteada exitosamente. El usuario deberá cambiarla obligatoriamente al iniciar sesión.' }
+                  }
+                }
+              }
+            }
+          },
+          '403': {
+            description: 'Acceso denegado: el usuario no tiene rol ADMIN.'
+          },
+          '404': {
+            description: 'Usuario destino no encontrado.'
+          }
+        }
+      }
+    },
+    '/apixportal/api/v1/auth/system/override-password': {
+      post: {
+        tags: ['Rescate de Emergencia'],
+        summary: 'Sobreescritura de clave por llave maestra (Break-Glass)',
+        security: [{ recoveryKeyAuth: [] }],
+        description: 'Endpoint de emergencia para recuperar acceso al administrador o a cualquier cuenta cuando se han perdido las credenciales. Requiere el encabezado x-recovery-key con el valor configurado en ADMIN_RECOVERY_KEY del .env.',
+        parameters: [
+          {
+            name: 'x-recovery-key',
+            in: 'header',
+            required: true,
+            schema: { type: 'string', example: 'clave_maestra_de_rescate_emergencia_minimo_16_caracteres' },
+            description: 'Llave secreta de rescate'
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['username', 'newPassword'],
+                properties: {
+                  username: { type: 'string', example: 'admin' },
+                  newPassword: { type: 'string', example: 'NuevaClaveAdmin2026!' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Contraseña sobreescrita exitosamente.'
+          },
+          '401': {
+            description: 'Llave de recuperación inválida o ausente.'
+          },
+          '503': {
+            description: 'ADMIN_RECOVERY_KEY no está configurada en el servidor.'
           }
         }
       }

@@ -36,16 +36,22 @@ const getUser = async (username) => {
     }
 };
 
-const updatePassword = async (username, hashedPassword) => {
+const updatePassword = async (username, hashedPassword, options = {}) => {
     let connection;
     try {
         connection = await getConnection();
+        const requireChange = options.requireChange === true ? 'S' : 'N';
+        const stsusu = options.status || 'ACT';
         const sql = `
             UPDATE ${USER_TABLE} 
-            SET CLAVE = :hashedPassword, CAMBIOCLV = 'S' 
+            SET CLAVE = :hashedPassword, CAMBIOCLV = :requireChange, STSUSU = :stsusu 
             WHERE CODUSU = :username
         `;
-        const result = await connection.execute(sql, { username, hashedPassword }, { autoCommit: true });
+        const result = await connection.execute(
+            sql, 
+            { username, hashedPassword, requireChange, stsusu }, 
+            { autoCommit: true }
+        );
         return { success: result.rowsAffected === 1 };
     } catch (err) {
         console.error("Error al actualizar clave:", err);
