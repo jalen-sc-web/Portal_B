@@ -6,6 +6,7 @@ import { initializePool, closePoolAndExit } from './config/database.js';
 import v1ValrepRouter from './v1/valrepRoutes.js';
 import v1PortalRouter from './v1/portalRoutes.js';
 import v1AuthRoutes from './v1/authRoutes.js';
+import { notFoundHandler, errorHandler } from './middlewares/errorMiddleware.js';
 
 const app = express();
 
@@ -24,6 +25,10 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/apixportal/api/v1/auth', v1AuthRoutes);
 app.use("/apixportal/api/v1/valrep", v1ValrepRouter); 
 app.use("/apixportal/api/v1/portal", v1PortalRouter);
+
+// Manejo centralizado de 404 y errores
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5610;
 
