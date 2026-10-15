@@ -7,6 +7,8 @@ import v1ValrepRouter from './v1/valrepRoutes.js';
 import v1PortalRouter from './v1/portalRoutes.js';
 import v1AuthRoutes from './v1/authRoutes.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorMiddleware.js';
+import { apiReference } from '@scalar/express-api-reference';
+import { openApiSpec } from './config/swagger.js';
 
 const app = express();
 
@@ -21,6 +23,22 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Documentación interactiva con Scalar
+app.get('/docs/openapi.json', (req, res) => {
+  res.json(openApiSpec);
+});
+
+app.use(
+  '/docs',
+  apiReference({
+    spec: {
+      content: openApiSpec
+    },
+    theme: 'purple',
+    pageTitle: 'Portal del Asegurado - Documentación API'
+  })
+);
 
 app.use('/apixportal/api/v1/auth', v1AuthRoutes);
 app.use("/apixportal/api/v1/valrep", v1ValrepRouter); 
