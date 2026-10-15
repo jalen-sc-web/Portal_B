@@ -3,16 +3,19 @@ import oracledb from 'oracledb';
 
 const USER_TABLE = process.env.DB_USER_TABLE || 'WEBPORTAL.USUARIO';
 
-const getUser = async (username) => {
+const getUser = async (username, { onlyActive = true } = {}) => {
     let connection;
     try {
         connection = await getConnection();
         
-        const sql = `
+        let sql = `
             SELECT codusu, nomusu, clave, stsusu, cambioclv, codperfil
             FROM ${USER_TABLE}
-            WHERE codusu = :username AND stsusu = 'ACT'
+            WHERE codusu = :username
         `;
+        if (onlyActive) {
+            sql += ` AND stsusu = 'ACT'`;
+        }
 
         const result = await connection.execute(      
             sql, 
@@ -31,6 +34,35 @@ const getUser = async (username) => {
                 await connection.close(); 
             } catch (e) { 
                 console.error("Error al cerrar conexión:", e); 
+            }
+        }
+    }
+};
+
+const createUser = async ({ username, nombre, hashedPassword, role = 'ASEGURADO', requireChange = true }) => {
+    let connection;
+    try {
+        connection = await getConnection();
+        const cambioclv = requireChange ? 'S' : 'N';
+        const sql = `
+            INSERT INTO ${USER_TABLE} (CODUSU, NOMUSU, CLAVE, STSUSU, CAMBIOCLV, CODPERFIL)
+            VALUES (:username, :nombre, :hashedPassword, 'ACT', :cambioclv, :role)
+        `;
+        const result = await connection.execute(
+            sql,
+            { username, nombre, hashedPassword, cambioclv, role },
+            { autoCommit: true }
+        );
+        return { success: result.rowsAffected === 1 };
+    } catch (err) {
+        console.error("Error al crear usuario en Oracle Auth:", err);
+        return { error: "Error en la base de datos al registrar usuario" };
+    } finally {
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (e) {
+                console.error("Error al cerrar conexión en createUser:", e);
             }
         }
     }
@@ -69,5 +101,6 @@ const updatePassword = async (username, hashedPassword, options = {}) => {
 
 export default { 
     getUser,
+    createUser,
     updatePassword
 };

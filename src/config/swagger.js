@@ -36,7 +36,7 @@ export const openApiSpec = {
       post: {
         tags: ['Autenticación'],
         summary: 'Iniciar sesión y obtener token JWT',
-        description: 'Valida credenciales con hash bcrypt contra la base de datos y retorna un JWT de 8 horas.',
+        description: 'Valida credenciales con hash bcrypt contra la base de datos. Si CAMBIOCLV es S, retorna un token temporal de 15 minutos para forzar el cambio en /set-password.',
         requestBody: {
           required: true,
           content: {
@@ -61,7 +61,9 @@ export const openApiSpec = {
                   type: 'object',
                   properties: {
                     status: { type: 'boolean', example: true },
+                    requireChange: { type: 'boolean', example: false },
                     token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsIn...' },
+                    expiresIn: { type: 'integer', example: 28800, description: 'Tiempo de vida del token en segundos' },
                     data: {
                       type: 'object',
                       properties: {
@@ -82,10 +84,110 @@ export const openApiSpec = {
         }
       }
     },
+    '/apixportal/api/v1/auth/refresh-token': {
+      post: {
+        tags: ['Autenticación'],
+        summary: 'Renovar sesión (Token Refresh)',
+        security: [{ bearerAuth: [] }],
+        description: 'Permite renovar el token antes de su expiración. Revoca el token actual y emite uno nuevo con TTL completo.',
+        responses: {
+          '200': {
+            description: 'Token renovado exitosamente.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'boolean', example: true },
+                    token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsIn...' },
+                    expiresIn: { type: 'integer', example: 28800 },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        username: { type: 'string', example: 'admin' },
+                        nombre: { type: 'string', example: 'Administrador Portal' },
+                        role: { type: 'string', example: 'ADMIN' }
+                      }
+                    },
+                    message: { type: 'string', example: 'Token renovado exitosamente.' }
+                  }
+                }
+              }
+            }
+          },
+          '401': {
+            description: 'Token inválido o usuario inactivo.'
+          }
+        }
+      }
+    },
+    '/apixportal/api/v1/auth/me': {
+      get: {
+        tags: ['Autenticación'],
+        summary: 'Obtener datos del usuario autenticado',
+        security: [{ bearerAuth: [] }],
+        description: 'Retorna el perfil y estado de la sesión actual validando el token Bearer.',
+        responses: {
+          '200': {
+            description: 'Datos del usuario.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'boolean', example: true },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        username: { type: 'string', example: 'admin' },
+                        nombre: { type: 'string', example: 'Administrador Portal' },
+                        role: { type: 'string', example: 'ADMIN' },
+                        requireChange: { type: 'boolean', example: false },
+                        status: { type: 'string', example: 'ACT' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          '401': {
+            description: 'No autorizado / Token ausente o inválido.'
+          }
+        }
+      }
+    },
+    '/apixportal/api/v1/auth/logout': {
+      post: {
+        tags: ['Autenticación'],
+        summary: 'Cerrar sesión e invalidar token',
+        security: [{ bearerAuth: [] }],
+        description: 'Invalida el token actual en la lista negra (blocklist) del servidor para impedir su reutilización.',
+        responses: {
+          '200': {
+            description: 'Sesión finalizada exitosamente.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Sesión cerrada exitosamente. Token invalidado.' }
+                  }
+                }
+              }
+            }
+          },
+          '401': {
+            description: 'Token inválido o ya revocado.'
+          }
+        }
+      }
+    },
     '/apixportal/api/v1/auth/update-password': {
       post: {
         tags: ['Autenticación'],
-        summary: 'Actualizar contraseña del usuario',
+        summary: 'Actualizar contraseña del usuario con clave anterior',
         security: [{ bearerAuth: [] }],
         description: 'Actualiza la contraseña del usuario previa validación de la contraseña actual. Requiere token Bearer.',
         requestBody: {
@@ -113,6 +215,108 @@ export const openApiSpec = {
           },
           '401': {
             description: 'Token inválido o contraseña actual incorrecta.'
+          }
+        }
+      }
+    },
+    '/apixportal/api/v1/auth/set-password': {
+      post: {
+        tags: ['Autenticación'],
+        summary: 'Establecer nueva contraseña desde sesión activa (sin clave anterior)',
+        security: [{ bearerAuth: [] }],
+        description: 'Permite definir una nueva contraseña sin suministrar la anterior. Utilizado para usuarios recién creados con clave temporal o cuando CAMBIOCLV es S. Emite un token definitivo con CAMBIOCLV = N.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['newPassword'],
+                properties: {
+                  newPassword: { type: 'string', example: 'MiClaveNuevaDefinitiva123#' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Contraseña establecida exitosamente. Retorna token definitivo.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'boolean', example: true },
+                    token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsIn...' },
+                    expiresIn: { type: 'integer', example: 28800 },
+                    message: { type: 'string', example: 'Contraseña establecida exitosamente.' }
+                  }
+                }
+              }
+            }
+          },
+          '400': {
+            description: 'Contraseña menor a 6 caracteres.'
+          },
+          '401': {
+            description: 'Token inválido o sesión expirada.'
+          }
+        }
+      }
+    },
+    '/apixportal/api/v1/auth/admin/create-user': {
+      post: {
+        tags: ['Administración de Usuarios'],
+        summary: 'Crear nuevo usuario con clave temporal',
+        security: [{ bearerAuth: [] }],
+        description: 'Permite a un usuario con rol ADMIN dar de alta a un nuevo usuario (ej. ASEGURADO o ADMIN). Se le asigna una clave temporal y CAMBIOCLV = S para que en su primer inicio de sesión deba cambiarla obligatoriamente.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['username', 'nombre'],
+                properties: {
+                  username: { type: 'string', example: 'V12345678', description: 'Cédula o login del usuario' },
+                  nombre: { type: 'string', example: 'Juan Pérez' },
+                  role: { type: 'string', example: 'ASEGURADO', description: 'Rol asignado (ej. ASEGURADO o ADMIN)' },
+                  tempPassword: { type: 'string', example: 'ClaveTemp123#', description: 'Opcional. Si se omite, el backend genera una aleatoria' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'Usuario creado exitosamente.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'boolean', example: true },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        username: { type: 'string', example: 'V12345678' },
+                        nombre: { type: 'string', example: 'Juan Pérez' },
+                        role: { type: 'string', example: 'ASEGURADO' },
+                        tempPassword: { type: 'string', example: 'ClaveTemp123#' }
+                      }
+                    },
+                    message: { type: 'string', example: 'Usuario creado exitosamente con clave temporal.' }
+                  }
+                }
+              }
+            }
+          },
+          '400': {
+            description: 'El usuario ya existe o datos incompletos.'
+          },
+          '403': {
+            description: 'Acceso denegado: se requiere rol ADMIN.'
           }
         }
       }

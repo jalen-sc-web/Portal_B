@@ -5,11 +5,18 @@ import { verifyToken, requireRole, verifyRecoveryKey } from '../middlewares/auth
 const router = express.Router();
 
 router
-    // Autenticación estándar
+    // Autenticación estándar y gestión de sesión
     .post("/login", authController.login)
-    .post("/update-password", verifyToken, authController.changePassword)
+    .post("/refresh-token", verifyToken, authController.refreshToken)
+    .get("/me", verifyToken, authController.getMe)
+    .post("/logout", verifyToken, authController.logout)
 
-    // Gestión administrativa de claves (Requiere rol ADMIN)
+    // Cambio y establecimiento de contraseñas
+    .post("/update-password", verifyToken, authController.changePassword)
+    .post("/set-password", verifyToken, authController.setPassword)
+
+    // Gestión administrativa de usuarios (Requiere rol ADMIN)
+    .post("/admin/create-user", verifyToken, requireRole('ADMIN'), authController.createUser)
     .post("/admin/reset-password", verifyToken, requireRole('ADMIN'), authController.adminResetPassword)
 
     // Rescate de emergencia ("Break-Glass", requiere x-recovery-key de .env)
