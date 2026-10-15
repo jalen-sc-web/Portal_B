@@ -564,7 +564,7 @@ export const openApiSpec = {
         tags: ["Catálogos (Valrep)"],
         summary: "Obtener catálogo de países",
         description:
-          "Retorna la lista de países desde LOCALCONSSEG.PAIS con respuesta en caché en memoria.",
+          "Retorna la lista de países desde CONSSEG.PAIS con respuesta en caché en memoria.",
         responses: {
           200: {
             description: "Lista de países obtenida exitosamente.",
@@ -577,7 +577,7 @@ export const openApiSpec = {
         tags: ["Catálogos (Valrep)"],
         summary: "Obtener catálogo de estados",
         description:
-          "Retorna los estados para un país específico desde LOCALCONSSEG.ESTADO.",
+          "Retorna los estados para un país específico desde CONSSEG.ESTADO.",
         parameters: [
           {
             name: "codpais",
@@ -602,7 +602,7 @@ export const openApiSpec = {
         tags: ["Catálogos (Valrep)"],
         summary: "Obtener catálogo de ciudades",
         description:
-          "Retorna las ciudades para un país y estado específicos desde LOCALCONSSEG.CIUDAD.",
+          "Retorna las ciudades para un país y estado específicos desde CONSSEG.CIUDAD.",
         parameters: [
           {
             name: "codpais",
@@ -629,7 +629,7 @@ export const openApiSpec = {
         tags: ["Catálogos (Valrep)"],
         summary: "Obtener catálogo de municipios",
         description:
-          "Retorna los municipios según país, estado y ciudad desde LOCALCONSSEG.MUNICIPIO.",
+          "Retorna los municipios según país, estado y ciudad desde CONSSEG.MUNICIPIO.",
         parameters: [
           {
             name: "codpais",
@@ -662,7 +662,7 @@ export const openApiSpec = {
         tags: ["Catálogos (Valrep)"],
         summary: "Obtener lista de valores (LVAL)",
         description:
-          "Retorna los valores de un catálogo según su categoría (ej. SEXO, EDOCIVIL) desde LOCALCONSSEG.LVAL.",
+          "Retorna los valores de un catálogo según su categoría (ej. SEXO, EDOCIVIL) desde CONSSEG.LVAL.",
         parameters: [
           {
             name: "tipolval",

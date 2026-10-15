@@ -1,7 +1,7 @@
 import { getConnection } from "../config/database.js";
 import oracledb from "oracledb";
 
-const USER_TABLE = process.env.DB_USER_TABLE || "LOCALWEBPORTAL.USUARIO";
+const USER_TABLE = process.env.DB_USER_TABLE || "WEBPORTAL.USUARIO";
 
 const getUser = async (username, { onlyActive = true } = {}) => {
   let connection;

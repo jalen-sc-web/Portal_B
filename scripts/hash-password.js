@@ -23,7 +23,7 @@ async function generate() {
   console.log(`Hash Bcrypt: ${hash}`);
   console.log("\nSentencia SQL para ejecutar en Oracle (DBeaver / SQL*Plus):");
   console.log("-------------------------------------------------------");
-  console.log(`UPDATE LOCALWEBPORTAL.USUARIO`);
+  console.log(`UPDATE WEBPORTAL.USUARIO`);
   console.log(`SET CLAVE = '${hash}', CAMBIOCLV = 'N', STSUSU = 'ACT'`);
   console.log(`WHERE CODUSU = '${username}';`);
   console.log(`COMMIT;`);
