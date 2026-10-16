@@ -63,4 +63,8 @@ async function startApplication() {
     }
 }
 
-startApplication();
+export default app;
+
+if (process.env.NODE_ENV !== 'test') {
+    startApplication();
+}

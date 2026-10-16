@@ -182,9 +182,9 @@ export const changeUserPassword = async ({
     throw error;
   }
 
-  if (typeof newPassword !== "string" || newPassword.length < 6) {
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
     const error = new Error(
-      "La nueva contraseña debe tener al menos 6 caracteres.",
+      "La nueva contraseña debe tener al menos 8 caracteres.",
     );
     error.statusCode = 400;
     error.isOperational = true;
@@ -241,9 +241,9 @@ export const setPasswordFromSession = async ({
     throw error;
   }
 
-  if (typeof newPassword !== "string" || newPassword.length < 6) {
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
     const error = new Error(
-      "La nueva contraseña debe tener al menos 6 caracteres.",
+      "La nueva contraseña debe tener al menos 8 caracteres.",
     );
     error.statusCode = 400;
     error.isOperational = true;
@@ -659,9 +659,9 @@ export const resetPasswordWithToken = async ({ token, newPassword }) => {
     throw error;
   }
 
-  if (typeof newPassword !== "string" || newPassword.length < 6) {
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
     const error = new Error(
-      "La nueva contraseña debe tener al menos 6 caracteres.",
+      "La nueva contraseña debe tener al menos 8 caracteres.",
     );
     error.statusCode = 400;
     error.isOperational = true;
