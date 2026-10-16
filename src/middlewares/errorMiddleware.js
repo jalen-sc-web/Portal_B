@@ -18,8 +18,14 @@ export const errorHandler = (err, req, res, next) => {
         ? err.message 
         : 'Ocurrió un error interno en el servidor.';
 
+    if (err.retryAfter) {
+        res.set('Retry-After', String(err.retryAfter));
+    }
+
     res.status(statusCode).json({
         status: false,
-        message: clientMessage
+        statusCode,
+        message: clientMessage,
+        ...(err.retryAfter ? { retryAfter: err.retryAfter } : {})
     });
 };

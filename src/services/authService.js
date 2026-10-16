@@ -8,6 +8,24 @@ import {
 } from "../middlewares/authMiddleware.js";
 import { sendPasswordResetEmail } from "../utils/mailer.js";
 
+// Rate limiting por cuenta/correo: Map de clave normalizada -> timestamp de expiración del cooldown
+const accountCooldowns = new Map();
+const getCooldownDurationMs = () => Number(process.env.RESET_PASSWORD_COOLDOWN_SECONDS || 180) * 1000;
+
+// Limpieza periódica de cooldowns expirados
+const cooldownCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, expiresAt] of accountCooldowns.entries()) {
+    if (now >= expiresAt) {
+      accountCooldowns.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+if (cooldownCleanupInterval.unref) {
+  cooldownCleanupInterval.unref();
+}
+
 const getJwtExpiresIn = () => process.env.JWT_EXPIRES_IN || "8h";
 
 export const getExpiresInSeconds = () => {
@@ -483,11 +501,28 @@ export const requestPasswordReset = async (identifier) => {
     throw error;
   }
 
-  const cleanIdentifier = identifier.trim();
+  const cleanIdentifier = identifier.trim().toLowerCase();
+  const now = Date.now();
+
+  // 1. Verificar si el identificador ingresado está en período de enfriamiento (Cooldown)
+  const existingCooldown = accountCooldowns.get(cleanIdentifier);
+  if (existingCooldown && now < existingCooldown) {
+    const remainingSeconds = Math.max(1, Math.ceil((existingCooldown - now) / 1000));
+    console.warn(`🛑 [RateLimiter Cooldown] Solicitud bloqueada para '${cleanIdentifier}'. Cooldown activo por ${remainingSeconds}s.`);
+    const error = new Error(
+      `Ya se ha solicitado un enlace recientemente. Por favor espere ${remainingSeconds} segundos antes de solicitar otro envío.`
+    );
+    error.statusCode = 429;
+    error.isOperational = true;
+    error.retryAfter = remainingSeconds;
+    throw error;
+  }
+
   const result = await Auth.getUser(cleanIdentifier);
 
-  // Mitigación de enumeración de cuentas: si no existe, retornar éxito genérico
+  // Mitigación de enumeración de cuentas: si no existe, registrar cooldown y retornar mensaje neutro
   if (!result?.data) {
+    accountCooldowns.set(cleanIdentifier, now + getCooldownDurationMs());
     return {
       status: true,
       message:
@@ -496,8 +531,9 @@ export const requestPasswordReset = async (identifier) => {
   }
 
   const user = result.data;
-  const recipientEmail =
-    user.EMAIL || (cleanIdentifier.includes("@") ? cleanIdentifier : null);
+  const recipientEmail = (
+    user.EMAIL || (cleanIdentifier.includes("@") ? cleanIdentifier : null)
+  )?.toLowerCase();
 
   if (!recipientEmail) {
     const error = new Error(
@@ -505,6 +541,20 @@ export const requestPasswordReset = async (identifier) => {
     );
     error.statusCode = 400;
     error.isOperational = true;
+    throw error;
+  }
+
+  // 2. Verificar si el correo destino resuelto también está en período de enfriamiento
+  const emailCooldown = accountCooldowns.get(recipientEmail);
+  if (emailCooldown && now < emailCooldown) {
+    const remainingSeconds = Math.max(1, Math.ceil((emailCooldown - now) / 1000));
+    console.warn(`🛑 [RateLimiter Cooldown] Solicitud bloqueada para '${recipientEmail}'. Cooldown activo por ${remainingSeconds}s.`);
+    const error = new Error(
+      `Ya se ha enviado un correo recientemente a esta cuenta. Por favor espere ${remainingSeconds} segundos antes de solicitar otro envío.`
+    );
+    error.statusCode = 429;
+    error.isOperational = true;
+    error.retryAfter = remainingSeconds;
     throw error;
   }
 
@@ -518,6 +568,14 @@ export const requestPasswordReset = async (identifier) => {
     getJwtSecret(),
     { expiresIn: "72h" },
   );
+
+  // Registrar cooldown tanto para el identificador como para el correo resuelto y el nombre de usuario
+  const cooldownExpiresAt = now + getCooldownDurationMs();
+  accountCooldowns.set(cleanIdentifier, cooldownExpiresAt);
+  accountCooldowns.set(recipientEmail, cooldownExpiresAt);
+  if (user.CODUSU) {
+    accountCooldowns.set(String(user.CODUSU).trim().toLowerCase(), cooldownExpiresAt);
+  }
 
   await sendPasswordResetEmail({
     to: recipientEmail,
