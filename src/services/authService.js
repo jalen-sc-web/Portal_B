@@ -7,6 +7,7 @@ import {
   getJwtSecret,
 } from "../middlewares/authMiddleware.js";
 import { sendPasswordResetEmail } from "../utils/mailer.js";
+import { validateNewPassword } from "../utils/passwordValidator.js";
 
 // Rate limiting por cuenta/correo: Map de clave normalizada -> timestamp de expiración del cooldown
 const accountCooldowns = new Map();
@@ -207,6 +208,8 @@ export const changeUserPassword = async ({
     throw error;
   }
 
+  await validateNewPassword(newPassword, user);
+
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(newPassword, salt);
 
@@ -256,6 +259,7 @@ export const setPasswordFromSession = async ({
   }
 
   const user = result.data;
+  await validateNewPassword(newPassword, user);
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(newPassword, salt);
 
@@ -703,6 +707,7 @@ export const resetPasswordWithToken = async ({ token, newPassword }) => {
   }
 
   const user = result.data;
+  await validateNewPassword(newPassword, user);
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(newPassword, salt);
 

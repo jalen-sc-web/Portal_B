@@ -9,7 +9,7 @@ const getUser = async (identifier, { onlyActive = true } = {}) => {
     connection = await getConnection();
 
     let sql = `
-            SELECT codusu, nomusu, clave, stsusu, cambioclv, codperfil, email
+            SELECT codusu, nomusu, clave, clave_ant, stsusu, cambioclv, codperfil, email
             FROM ${USER_TABLE}
             WHERE (LOWER(codusu) = LOWER(:identifier) OR LOWER(email) = LOWER(:identifier))
         `;
@@ -51,8 +51,8 @@ const createUser = async ({
     connection = await getConnection();
     const cambioclv = requireChange ? "S" : "N";
     const sql = `
-            INSERT INTO ${USER_TABLE} (CODUSU, NOMUSU, CLAVE, STSUSU, CAMBIOCLV, CODPERFIL, EMAIL)
-            VALUES (:username, :nombre, :hashedPassword, 'ACT', :cambioclv, :role, :email)
+            INSERT INTO ${USER_TABLE} (CODUSU, NOMUSU, CLAVE, CLAVE_ANT, STSUSU, CAMBIOCLV, CODPERFIL, EMAIL)
+            VALUES (:username, :nombre, :hashedPassword, NULL, 'ACT', :cambioclv, :role, :email)
         `;
     const result = await connection.execute(
       sql,
@@ -82,7 +82,10 @@ const updatePassword = async (username, hashedPassword, options = {}) => {
     const stsusu = options.status || "ACT";
     const sql = `
             UPDATE ${USER_TABLE} 
-            SET CLAVE = :hashedPassword, CAMBIOCLV = :requireChange, STSUSU = :stsusu 
+            SET CLAVE_ANT = CLAVE,
+                CLAVE = :hashedPassword, 
+                CAMBIOCLV = :requireChange, 
+                STSUSU = :stsusu 
             WHERE LOWER(CODUSU) = LOWER(:username)
         `;
     const result = await connection.execute(
