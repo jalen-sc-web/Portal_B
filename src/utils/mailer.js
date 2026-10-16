@@ -1,5 +1,38 @@
 import nodemailer from 'nodemailer';
 
+export const isEmailAllowed = (email, whitelistConfig) => {
+  if (!whitelistConfig || typeof whitelistConfig !== 'string' || whitelistConfig.trim() === '' || whitelistConfig.trim() === '*') {
+    // Si la lista no está configurada o es '*', se permite todo (comportamiento de producción)
+    return true;
+  }
+
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail) return false;
+
+  const allowedPatterns = whitelistConfig
+    .split(',')
+    .map(p => p.trim().toLowerCase())
+    .filter(Boolean);
+
+  return allowedPatterns.some(pattern => {
+    if (pattern === '*' || pattern === cleanEmail) {
+      return true;
+    }
+    // Soporta comodines de dominio: '*@dominio.com' o '@dominio.com'
+    if (pattern.startsWith('*@')) {
+      return cleanEmail.endsWith(pattern.slice(1));
+    }
+    if (pattern.startsWith('@')) {
+      return cleanEmail.endsWith(pattern);
+    }
+    if (pattern.startsWith('*.')) {
+      const domain = pattern.slice(2);
+      return cleanEmail.endsWith(`@${domain}`) || cleanEmail.endsWith(`.${domain}`);
+    }
+    return cleanEmail === pattern;
+  });
+};
+
 const getMailerConfig = () => {
   const host = process.env.SMTP_HOST || 'smtp.gmail.com';
   const port = Number(process.env.SMTP_PORT) || 587;
@@ -8,8 +41,9 @@ const getMailerConfig = () => {
   const pass = process.env.SMTP_PASS;
   const from = process.env.SMTP_FROM || '"Seguros Constitución" <no-reply@constitucion.com>';
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+  const whitelist = process.env.EMAIL_WHITELIST || '';
 
-  return { host, port, secure, user, pass, from, frontendUrl };
+  return { host, port, secure, user, pass, from, frontendUrl, whitelist };
 };
 
 export const sendPasswordResetEmail = async ({ to, nombre, resetToken }) => {
@@ -23,7 +57,18 @@ export const sendPasswordResetEmail = async ({ to, nombre, resetToken }) => {
   console.log(`Enlace       : ${resetUrl}`);
   console.log('============================================================\n');
 
-  // Si no hay credenciales SMTP configuradas en el .env, no intentar enviar por red
+  // 1. Verificación de Lista Blanca (Whitelist) para evitar envíos accidentales
+  if (!isEmailAllowed(to, config.whitelist)) {
+    console.warn(`🛑 [EMAIL WHITELIST] Envío bloqueado a '${to}'. La dirección no se encuentra en la lista blanca de destinos autorizados (EMAIL_WHITELIST: '${config.whitelist}').`);
+    return {
+      sent: false,
+      blocked: true,
+      reason: `Destinatario '${to}' bloqueado por EMAIL_WHITELIST`,
+      resetUrl
+    };
+  }
+
+  // 2. Si no hay credenciales SMTP configuradas en el .env, no intentar enviar por red
   if (!config.user || !config.pass) {
     console.warn('⚠️ SMTP_USER o SMTP_PASS no están configurados en el .env. El correo no fue enviado por red, use el enlace de la consola.');
     return { sent: false, reason: 'SMTP no configurado', resetUrl };
@@ -93,5 +138,6 @@ export const sendPasswordResetEmail = async ({ to, nombre, resetToken }) => {
 };
 
 export default {
+  isEmailAllowed,
   sendPasswordResetEmail
 };
