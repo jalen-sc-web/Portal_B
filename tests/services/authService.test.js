@@ -18,6 +18,7 @@ vi.mock('../../src/utils/mailer.js', () => ({
 
 import Auth from '../../src/db/Auth.js';
 import {
+  loginUser,
   changeUserPassword,
   setPasswordFromSession,
   requestPasswordReset,
@@ -275,4 +276,67 @@ describe('AuthService - Gestión de Sesión, Contraseñas y Recuperación', () =
       })
     ).rejects.toThrow('Este enlace de recuperación ya ha sido utilizado.');
   });
+
+  /**
+   * ID: S011-AUTH
+   * Descripción: Validar que loginUser identifique al administrador antes de normalizar
+   * Resultado Esperado: Debe consultar al usuario 'admin' y permitir el acceso ante clave correcta
+   */
+  test('[S011-AUTH] Debería permitir el ingreso del administrador con usuario admin', async () => {
+    const adminHash = await bcrypt.hash('AdminSecret2026!', 10);
+    Auth.getUser.mockResolvedValue({
+      data: {
+        CODUSU: 'admin',
+        NOMUSU: 'Administrador Portal',
+        CODPERFIL: 'ADMIN',
+        CLAVE: adminHash,
+        CAMBIOCLV: 'N'
+      }
+    });
+
+    const result = await loginUser({ username: 'Admin', password: 'AdminSecret2026!' });
+
+    expect(result.requireChange).toBe(false);
+    expect(result.user.username).toBe('admin');
+    expect(result.user.role).toBe('ADMIN');
+    expect(Auth.getUser).toHaveBeenCalledWith('admin');
+  });
+
+  /**
+   * ID: S012-AUTH
+   * Descripción: Validar que loginUser normalice la cédula a solo números para hallar el match
+   * Resultado Esperado: Debe invocar Auth.getUser con la cédula limpia numérica (sin letras, guiones ni puntos)
+   */
+  test('[S012-AUTH] Debería normalizar la cédula ingresada exclusivamente a números para el login', async () => {
+    const userHash = await bcrypt.hash('ClaveValida2026#', 10);
+    Auth.getUser.mockResolvedValue({
+      data: {
+        CODUSU: '27941043',
+        NOMUSU: 'Luis Covis',
+        CODPERFIL: 'ASEGURADO',
+        CLAVE: userHash,
+        CAMBIOCLV: 'N'
+      }
+    });
+
+    const result = await loginUser({ username: 'V-27.941.043', password: 'ClaveValida2026#' });
+
+    expect(result.user.username).toBe('27941043');
+    expect(Auth.getUser).toHaveBeenCalledWith('27941043');
+  });
+
+  /**
+   * ID: S013-AUTH
+   * Descripción: Validar que loginUser rechace entradas no numéricas que no correspondan al admin
+   * Resultado Esperado: Debe arrojar error 400 exigiendo un número de documento de identidad válido
+   */
+  test('[S013-AUTH] Debería rechazar login si la entrada no es admin y no contiene dígitos válidos', async () => {
+    await expect(
+      loginUser({ username: 'usuario_invalido', password: 'Password123#' })
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'Debe ingresar un número de documento de identidad válido.'
+    });
+  });
 });
+

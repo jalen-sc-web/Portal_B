@@ -8,18 +8,46 @@ const getUser = async (identifier, { onlyActive = true } = {}) => {
   try {
     connection = await getConnection();
 
-    let sql = `
+    const clean = String(identifier || "").trim();
+    const isAdmin = clean.toLowerCase() === "admin";
+    const cleanDigits = clean.replace(/\D/g, "");
+
+    let sql;
+    const binds = {};
+
+    if (isAdmin) {
+      sql = `
             SELECT codusu, nomusu, clave, clave_ant, stsusu, cambioclv, codperfil, email
             FROM ${USER_TABLE}
-            WHERE (LOWER(codusu) = LOWER(:identifier) OR LOWER(email) = LOWER(:identifier))
+            WHERE LOWER(codusu) = 'admin'
         `;
+    } else if (clean.includes("@")) {
+      sql = `
+            SELECT codusu, nomusu, clave, clave_ant, stsusu, cambioclv, codperfil, email
+            FROM ${USER_TABLE}
+            WHERE LOWER(email) = LOWER(:cleanEmail)
+        `;
+      binds.cleanEmail = clean;
+    } else {
+      sql = `
+            SELECT codusu, nomusu, clave, clave_ant, stsusu, cambioclv, codperfil, email
+            FROM ${USER_TABLE}
+            WHERE (
+                LOWER(codusu) = LOWER(:clean)
+                OR (LENGTH(:cleanDigits) > 0 AND REGEXP_REPLACE(codusu, '[^0-9]', '') = :cleanDigits)
+            )
+        `;
+      binds.clean = clean;
+      binds.cleanDigits = cleanDigits || clean;
+    }
+
     if (onlyActive) {
       sql += ` AND stsusu = 'ACT'`;
     }
 
     const result = await connection.execute(
       sql,
-      { identifier: String(identifier).trim() },
+      binds,
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
@@ -49,6 +77,9 @@ const createUser = async ({
   let connection;
   try {
     connection = await getConnection();
+    const clean = String(username || "").trim();
+    const isAdmin = clean.toLowerCase() === "admin";
+    const finalUsername = isAdmin ? "admin" : clean.replace(/\D/g, "");
     const cambioclv = requireChange ? "S" : "N";
     const sql = `
             INSERT INTO ${USER_TABLE} (CODUSU, NOMUSU, CLAVE, CLAVE_ANT, STSUSU, CAMBIOCLV, CODPERFIL, EMAIL)
@@ -56,7 +87,7 @@ const createUser = async ({
         `;
     const result = await connection.execute(
       sql,
-      { username, nombre, hashedPassword, cambioclv, role, email },
+      { username: finalUsername, nombre, hashedPassword, cambioclv, role, email },
       { autoCommit: true },
     );
     return { success: result.rowsAffected === 1 };
@@ -78,19 +109,43 @@ const updatePassword = async (username, hashedPassword, options = {}) => {
   let connection;
   try {
     connection = await getConnection();
+    const clean = String(username || "").trim();
+    const isAdmin = clean.toLowerCase() === "admin";
+    const cleanDigits = clean.replace(/\D/g, "");
     const requireChange = options.requireChange === true ? "S" : "N";
     const stsusu = options.status || "ACT";
-    const sql = `
+
+    let sql;
+    const binds = { hashedPassword, requireChange, stsusu };
+
+    if (isAdmin) {
+      sql = `
             UPDATE ${USER_TABLE} 
             SET CLAVE_ANT = CLAVE,
                 CLAVE = :hashedPassword, 
                 CAMBIOCLV = :requireChange, 
                 STSUSU = :stsusu 
-            WHERE LOWER(CODUSU) = LOWER(:username)
+            WHERE LOWER(CODUSU) = 'admin'
         `;
+    } else {
+      sql = `
+            UPDATE ${USER_TABLE} 
+            SET CLAVE_ANT = CLAVE,
+                CLAVE = :hashedPassword, 
+                CAMBIOCLV = :requireChange, 
+                STSUSU = :stsusu 
+            WHERE (
+                LOWER(CODUSU) = LOWER(:clean)
+                OR (LENGTH(:cleanDigits) > 0 AND REGEXP_REPLACE(CODUSU, '[^0-9]', '') = :cleanDigits)
+            )
+        `;
+      binds.clean = clean;
+      binds.cleanDigits = cleanDigits || clean;
+    }
+
     const result = await connection.execute(
       sql,
-      { username, hashedPassword, requireChange, stsusu },
+      binds,
       { autoCommit: true },
     );
     return { success: result.rowsAffected === 1 };

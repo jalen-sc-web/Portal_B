@@ -52,13 +52,31 @@ export const generateUserToken = (user, expiresIn = getJwtExpiresIn()) => {
 
 export const loginUser = async ({ username, password }) => {
   if (!username || !password) {
-    const error = new Error("Usuario y contraseña son requeridos.");
+    const error = new Error("Documento de identidad y contraseña son requeridos.");
     error.statusCode = 400;
     error.isOperational = true;
     throw error;
   }
 
-  const result = await Auth.getUser(username);
+  const raw = String(username).trim();
+  const isAdmin = raw.toLowerCase() === "admin";
+
+  let searchIdentifier;
+  if (isAdmin) {
+    searchIdentifier = "admin";
+  } else {
+    // El login funciona exclusivamente con el documento de identidad (solo números)
+    const cleanCedula = raw.replace(/\D/g, "");
+    if (!cleanCedula) {
+      const error = new Error("Debe ingresar un número de documento de identidad válido.");
+      error.statusCode = 400;
+      error.isOperational = true;
+      throw error;
+    }
+    searchIdentifier = cleanCedula;
+  }
+
+  const result = await Auth.getUser(searchIdentifier);
   if (result.error || !result.data) {
     const error = new Error("Credenciales inválidas.");
     error.statusCode = 401;
