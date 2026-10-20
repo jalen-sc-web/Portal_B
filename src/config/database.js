@@ -3,8 +3,8 @@ import 'dotenv/config';
 
 // Configuraciones globales de oracledb
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
-oracledb.fetchAsString = [oracledb.CLOB]; 
-oracledb.fetchAsBuffer = [oracledb.BLOB]; 
+oracledb.fetchAsString = [oracledb.CLOB];
+oracledb.fetchAsBuffer = [oracledb.BLOB];
 
 // Inicialización de Thick Mode solo si está explícitamente configurado; de lo contrario opera en Thin Mode nativo
 if (process.env.ORACLE_CLIENT_DIR) {
@@ -18,58 +18,148 @@ if (process.env.ORACLE_CLIENT_DIR) {
     console.log('📦 Cliente Oracle operando en Thin Mode nativo.');
 }
 
-const serviceName = process.env.SERVICE_NAME_BD || process.env.NAME || process.env.NAME_BD || 'QA';
+// ------------------------------------------------------------------------------
+// CONSTANTES Y HELPERS DE ESQUEMAS Y TABLAS
+// ------------------------------------------------------------------------------
+export const SCHEMAS = {
+    ACSEL: process.env.ACSEL_SCHEMA || 'CONSSEG',
+    PORTAL: process.env.PORTAL_SCHEMA || 'WEBPORTAL'
+};
 
-const dbConfig = {
-    user: process.env.USER_BD,
-    password: process.env.PASSWORD_BD,
-    connectString: `${process.env.SERVER_BD}:${process.env.PORT_BD}/${serviceName}`,
-    poolMin: Number(process.env.DB_POOL_MIN) || 2,
-    poolMax: Number(process.env.DB_POOL_MAX) || 20,
+/**
+ * Retorna el nombre calificado para una tabla del Portal (ej: WEBPORTAL.USUARIO)
+ */
+export const portalTable = (tableName) => {
+    const schema = process.env.PORTAL_SCHEMA || SCHEMAS.PORTAL;
+    return schema ? `${schema}.${tableName}` : tableName;
+};
+
+/**
+ * Retorna el nombre calificado para una tabla de Acsel Core (ej: CONSSEG.CLIENTE)
+ */
+export const acselTable = (tableName) => {
+    const schema = process.env.ACSEL_SCHEMA || SCHEMAS.ACSEL;
+    return schema ? `${schema}.${tableName}` : tableName;
+};
+
+// ------------------------------------------------------------------------------
+// 1. CONFIGURACIÓN POOL 1: CORE ACSEL / CONSSEG (Usuario JALEN u homólogo)
+// ------------------------------------------------------------------------------
+const acselServer = process.env.ACSEL_SERVER_BD || process.env.SERVER_BD || '10.0.0.75';
+const acselPort = process.env.ACSEL_PORT_BD || process.env.PORT_BD || 1521;
+const acselService = process.env.ACSEL_SERVICE_NAME_BD || process.env.SERVICE_NAME_BD || process.env.NAME || 'QA';
+
+const acselDbConfig = {
+    user: process.env.ACSEL_USER_BD || process.env.USER_BD || 'JALEN',
+    password: process.env.ACSEL_PASSWORD_BD || process.env.PASSWORD_BD,
+    connectString: `${acselServer}:${acselPort}/${acselService}`,
+    poolMin: Number(process.env.ACSEL_DB_POOL_MIN || process.env.DB_POOL_MIN) || 2,
+    poolMax: Number(process.env.ACSEL_DB_POOL_MAX || process.env.DB_POOL_MAX) || 20,
     poolIncrement: 1,
-    poolTimeout: Number(process.env.DB_POOL_TIMEOUT) || 60,  
+    poolTimeout: Number(process.env.ACSEL_DB_POOL_TIMEOUT || process.env.DB_POOL_TIMEOUT) || 60,
     queueTimeout: 30000
 };
 
-let oraclePool;
+// ------------------------------------------------------------------------------
+// 2. CONFIGURACIÓN POOL 2: WEBPORTAL (Usuario LUCOVIS / Esquema WEBPORTAL)
+// ------------------------------------------------------------------------------
+const portalServer = process.env.PORTAL_SERVER_BD || process.env.SERVER_BD || '10.0.0.75';
+const portalPort = process.env.PORTAL_PORT_BD || process.env.PORT_BD || 1521;
+const portalService = process.env.PORTAL_SERVICE_NAME_BD || process.env.SERVICE_NAME_BD || process.env.NAME || 'QA';
 
+const portalDbConfig = {
+    user: process.env.PORTAL_USER_BD || 'LUCOVIS',
+    password: process.env.PORTAL_PASSWORD_BD || process.env.PASSWORD_BD,
+    connectString: `${portalServer}:${portalPort}/${portalService}`,
+    poolMin: Number(process.env.PORTAL_DB_POOL_MIN || process.env.DB_POOL_MIN) || 2,
+    poolMax: Number(process.env.PORTAL_DB_POOL_MAX || process.env.DB_POOL_MAX) || 20,
+    poolIncrement: 1,
+    poolTimeout: Number(process.env.PORTAL_DB_POOL_TIMEOUT || process.env.DB_POOL_TIMEOUT) || 60,
+    queueTimeout: 30000
+};
+
+let acselPool = null;
+let portalPool = null;
+
+/**
+ * Inicializa ambos pools de conexiones a Oracle de manera concurrente.
+ */
 export async function initializePool() {
-    console.log('📦 Inicializando Oracle Connection Pool...');
+    console.log('📦 Inicializando pools de conexiones a Oracle...');
     try {
-        oraclePool = await oracledb.createPool(dbConfig);
-        console.log('✅ Pool de conexiones a la base de datos Oracle creado correctamente.');
+        const [pAcsel, pPortal] = await Promise.all([
+            oracledb.createPool({ ...acselDbConfig, poolAlias: 'acselPool' }),
+            oracledb.createPool({ ...portalDbConfig, poolAlias: 'portalPool' })
+        ]);
+        acselPool = pAcsel;
+        portalPool = pPortal;
+        console.log(`✅ Pool Acsel Core conectado exitosamente a ${acselDbConfig.connectString} (usuario: ${acselDbConfig.user})`);
+        console.log(`✅ Pool WebPortal conectado exitosamente a ${portalDbConfig.connectString} (usuario: ${portalDbConfig.user})`);
     } catch (err) {
-        console.error('❌ ERROR CRÍTICO: No se pudo inicializar el pool de conexiones de Oracle:', err);
+        console.error('❌ ERROR CRÍTICO: No se pudieron inicializar los pools de Oracle:', err);
         throw err;
     }
 }
 
-export async function getConnection() {
-    if (!oraclePool) {
-        console.error('❌ Error: Intentando obtener conexión de Oracle antes de que el pool esté inicializado.');
-        throw new Error('Oracle pool not initialized. Call initializePool() first.');
+/**
+ * Obtiene una conexión para el esquema Core Acsel (Clientes, Terceros, Catálogos).
+ */
+export async function getAcselConnection() {
+    if (!acselPool) {
+        throw new Error('Acsel pool not initialized. Call initializePool() first.');
     }
-
-    try {
-        const connection = await oraclePool.getConnection();
-        return connection;
-    } catch (err) {
-        console.error('❌ Error al obtener conexión del pool de Oracle:', err);
-        throw err;
-    }
+    return acselPool.getConnection();
 }
 
+/**
+ * Obtiene una conexión para el esquema WebPortal (Usuarios, Credenciales, Auth).
+ */
+export async function getPortalConnection() {
+    if (!portalPool) {
+        throw new Error('Portal pool not initialized. Call initializePool() first.');
+    }
+    return portalPool.getConnection();
+}
+
+/**
+ * Compatibilidad con código previo que invoca getConnection().
+ * Si se especifica poolName ('portal' o 'acsel'), retorna la conexión respectiva.
+ * Por defecto retorna conexión de Acsel.
+ */
+export async function getConnection(poolName = 'acsel') {
+    if (poolName === 'portal' || poolName === 'webportal') {
+        return getPortalConnection();
+    }
+    return getAcselConnection();
+}
+
+/**
+ * Cierra ambos pools de conexiones de forma segura.
+ */
 export async function closePool() {
-    if (oraclePool) {
-        console.log('Cerrando pool de conexiones Oracle...');
-        try {
-            await oraclePool.close(10);
-            oraclePool = null;
-            console.log('Pool de conexiones a la base de datos Oracle cerrado.');
-        } catch (err) {
-            console.error('❌ Error al cerrar el pool de conexiones:', err);
-            throw err;
-        }
+    const closes = [];
+    if (acselPool) {
+        closes.push(
+            acselPool.close(10).then(() => {
+                acselPool = null;
+                console.log('Pool Acsel cerrado.');
+            })
+        );
+    }
+    if (portalPool) {
+        closes.push(
+            portalPool.close(10).then(() => {
+                portalPool = null;
+                console.log('Pool WebPortal cerrado.');
+            })
+        );
+    }
+    try {
+        await Promise.all(closes);
+        console.log('Pools de conexiones a Oracle cerrados exitosamente.');
+    } catch (err) {
+        console.error('❌ Error al cerrar los pools de conexiones:', err);
+        throw err;
     }
 }
 
@@ -77,7 +167,7 @@ export async function closePoolAndExit() {
     try {
         await closePool();
         process.exit(0);
-    } catch (err) {
+    } catch {
         process.exit(1);
     }
 }

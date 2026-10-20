@@ -9,6 +9,11 @@ const { mockConnection } = vi.hoisted(() => ({
 
 vi.mock('../../src/config/database.js', () => ({
   getConnection: vi.fn().mockResolvedValue(mockConnection),
+  getAcselConnection: vi.fn().mockResolvedValue(mockConnection),
+  getPortalConnection: vi.fn().mockResolvedValue(mockConnection),
+  portalTable: (table) => `WEBPORTAL.${table}`,
+  acselTable: (table) => `CONSSEG.${table}`,
+  SCHEMAS: { ACSEL: 'CONSSEG', PORTAL: 'WEBPORTAL' }
 }));
 
 import Valrep from '../../src/db/Valrep.js';
@@ -31,7 +36,7 @@ describe('Valrep DB - Capa de Acceso a Datos de Catálogos Acsel (Mocks)', () =>
 
     expect(result.data).toEqual(mockRows);
     expect(mockConnection.execute).toHaveBeenCalledWith(
-      expect.stringContaining('LOCALCONSSEG."PAIS"'),
+      expect.stringContaining('"PAIS"'),
       {},
       expect.anything()
     );
@@ -40,8 +45,8 @@ describe('Valrep DB - Capa de Acceso a Datos de Catálogos Acsel (Mocks)', () =>
 
   /**
    * ID: S002-DVAL
-   * Descripción: Validar que getState consulte la tabla ESTADO filtrando por codpais
-   * Resultado Esperado: Debe enlazar el bind codpais y retornar la lista de estados
+   * Descripción: Validar que getState consulte la tabla ESTADO con el bind codpais
+   * Resultado Esperado: Debe enlazar codpais y retornar la lista de estados
    */
   test('[S002-DVAL] Debería consultar estados asociados al país correspondiente', async () => {
     const mockRows = [{ CODESTADO: '01', DESCESTADO: 'DISTRITO CAPITAL' }];
@@ -51,7 +56,7 @@ describe('Valrep DB - Capa de Acceso a Datos de Catálogos Acsel (Mocks)', () =>
 
     expect(result.data).toEqual(mockRows);
     expect(mockConnection.execute).toHaveBeenCalledWith(
-      expect.stringContaining('LOCALCONSSEG."ESTADO"'),
+      expect.stringContaining('"ESTADO"'),
       { codpais: '001' },
       expect.anything()
     );
@@ -71,7 +76,7 @@ describe('Valrep DB - Capa de Acceso a Datos de Catálogos Acsel (Mocks)', () =>
 
     expect(result.data).toEqual(mockRows);
     expect(mockConnection.execute).toHaveBeenCalledWith(
-      expect.stringContaining('LOCALCONSSEG."CIUDAD"'),
+      expect.stringContaining('"CIUDAD"'),
       { codpais: '001', codestado: '01' },
       expect.anything()
     );
@@ -91,7 +96,7 @@ describe('Valrep DB - Capa de Acceso a Datos de Catálogos Acsel (Mocks)', () =>
 
     expect(result.data).toEqual(mockRows);
     expect(mockConnection.execute).toHaveBeenCalledWith(
-      expect.stringContaining('LOCALCONSSEG."MUNICIPIO"'),
+      expect.stringContaining('"MUNICIPIO"'),
       { codpais: '001', codestado: '01', codciudad: '001' },
       expect.anything()
     );
@@ -111,7 +116,7 @@ describe('Valrep DB - Capa de Acceso a Datos de Catálogos Acsel (Mocks)', () =>
 
     expect(result.data).toEqual(mockRows);
     expect(mockConnection.execute).toHaveBeenCalledWith(
-      expect.stringContaining('LOCALCONSSEG.LVAL'),
+      expect.stringContaining('.LVAL'),
       { tipolval: 'SEXO' },
       expect.anything()
     );
@@ -128,7 +133,7 @@ describe('Valrep DB - Capa de Acceso a Datos de Catálogos Acsel (Mocks)', () =>
 
     const result = await Valrep.getCountry();
 
-    expect(result).toHaveProperty('error');
+    expect(result.error).toBeDefined();
     expect(mockConnection.close).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,12 +1,10 @@
-import { getConnection } from "../config/database.js";
+import { getPortalConnection, portalTable } from "../config/database.js";
 import oracledb from "oracledb";
-
-const USER_TABLE = process.env.DB_USER_TABLE || "LOCALWEBPORTAL.USUARIO";
 
 const getUser = async (identifier, { onlyActive = true } = {}) => {
   let connection;
   try {
-    connection = await getConnection();
+    connection = await getPortalConnection();
 
     const clean = String(identifier || "").trim();
     const isAdmin = clean.toLowerCase() === "admin";
@@ -14,24 +12,25 @@ const getUser = async (identifier, { onlyActive = true } = {}) => {
 
     let sql;
     const binds = {};
+    const table = portalTable("USUARIO");
 
     if (isAdmin) {
       sql = `
             SELECT codusu, nomusu, clave, clave_ant, stsusu, cambioclv, codperfil, email
-            FROM ${USER_TABLE}
+            FROM ${table}
             WHERE LOWER(codusu) = 'admin'
         `;
     } else if (clean.includes("@")) {
       sql = `
             SELECT codusu, nomusu, clave, clave_ant, stsusu, cambioclv, codperfil, email
-            FROM ${USER_TABLE}
+            FROM ${table}
             WHERE LOWER(email) = LOWER(:cleanEmail)
         `;
       binds.cleanEmail = clean;
     } else {
       sql = `
             SELECT codusu, nomusu, clave, clave_ant, stsusu, cambioclv, codperfil, email
-            FROM ${USER_TABLE}
+            FROM ${table}
             WHERE (
                 LOWER(codusu) = LOWER(:clean)
                 OR (LENGTH(:cleanDigits) > 0 AND REGEXP_REPLACE(codusu, '[^0-9]', '') = :cleanDigits)
@@ -76,13 +75,14 @@ const createUser = async ({
 }) => {
   let connection;
   try {
-    connection = await getConnection();
+    connection = await getPortalConnection();
     const clean = String(username || "").trim();
     const isAdmin = clean.toLowerCase() === "admin";
     const finalUsername = isAdmin ? "admin" : clean.replace(/\D/g, "");
     const cambioclv = requireChange ? "S" : "N";
+    const table = portalTable("USUARIO");
     const sql = `
-            INSERT INTO ${USER_TABLE} (CODUSU, NOMUSU, CLAVE, CLAVE_ANT, STSUSU, CAMBIOCLV, CODPERFIL, EMAIL)
+            INSERT INTO ${table} (CODUSU, NOMUSU, CLAVE, CLAVE_ANT, STSUSU, CAMBIOCLV, CODPERFIL, EMAIL)
             VALUES (:username, :nombre, :hashedPassword, NULL, 'ACT', :cambioclv, :role, :email)
         `;
     const result = await connection.execute(
@@ -108,19 +108,20 @@ const createUser = async ({
 const updatePassword = async (username, hashedPassword, options = {}) => {
   let connection;
   try {
-    connection = await getConnection();
+    connection = await getPortalConnection();
     const clean = String(username || "").trim();
     const isAdmin = clean.toLowerCase() === "admin";
     const cleanDigits = clean.replace(/\D/g, "");
     const requireChange = options.requireChange === true ? "S" : "N";
     const stsusu = options.status || "ACT";
+    const table = portalTable("USUARIO");
 
     let sql;
     const binds = { hashedPassword, requireChange, stsusu };
 
     if (isAdmin) {
       sql = `
-            UPDATE ${USER_TABLE} 
+            UPDATE ${table} 
             SET CLAVE_ANT = CLAVE,
                 CLAVE = :hashedPassword, 
                 CAMBIOCLV = :requireChange, 
@@ -129,7 +130,7 @@ const updatePassword = async (username, hashedPassword, options = {}) => {
         `;
     } else {
       sql = `
-            UPDATE ${USER_TABLE} 
+            UPDATE ${table} 
             SET CLAVE_ANT = CLAVE,
                 CLAVE = :hashedPassword, 
                 CAMBIOCLV = :requireChange, 

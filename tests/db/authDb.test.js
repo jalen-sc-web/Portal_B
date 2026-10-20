@@ -9,6 +9,11 @@ const { mockConnection } = vi.hoisted(() => ({
 
 vi.mock('../../src/config/database.js', () => ({
   getConnection: vi.fn().mockResolvedValue(mockConnection),
+  getPortalConnection: vi.fn().mockResolvedValue(mockConnection),
+  getAcselConnection: vi.fn().mockResolvedValue(mockConnection),
+  portalTable: (table) => `WEBPORTAL.${table}`,
+  acselTable: (table) => `CONSSEG.${table}`,
+  SCHEMAS: { ACSEL: 'CONSSEG', PORTAL: 'WEBPORTAL' }
 }));
 
 import Auth from '../../src/db/Auth.js';

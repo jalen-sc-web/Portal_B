@@ -1,17 +1,25 @@
-import { getConnection } from "../config/database.js";
+import { getAcselConnection, acselTable } from "../config/database.js";
 import oracledb from "oracledb";
 
 const getOwner = async (data) => {
   let connection;
 
   try {
-    connection = await getConnection();
+    connection = await getAcselConnection();
 
     let { tipoid, numid, dvid } = data;
 
     if (dvid == null || dvid === "" || dvid === undefined) {
       dvid = 0;
     }
+
+    const clienteTbl = acselTable("CLIENTE");
+    const terceroTbl = acselTable("TERCERO");
+    const paisTbl = acselTable("PAIS");
+    const estadoTbl = acselTable("ESTADO");
+    const ciudadTbl = acselTable("CIUDAD");
+    const municipioTbl = acselTable("MUNICIPIO");
+    const zonaPostalTbl = acselTable("ZONA_POSTAL");
 
     const query = `
             SELECT
@@ -24,19 +32,19 @@ const getOwner = async (data) => {
                 t.INDNACIONAL, t.ZIP, zp.DESCZONAPOSTAL,
                 t.INDACTCORREO, t.INDACTTLF, t.FECMODCORREO, t.FECMODTLF
             FROM
-                LOCALCONSSEG.CLIENTE c
+                ${clienteTbl} c
             JOIN
-                LOCALCONSSEG.TERCERO t ON t.TIPOID = c.TIPOID AND t.NUMID = c.NUMID AND t.DVID = c.DVID
+                ${terceroTbl} t ON t.TIPOID = c.TIPOID AND t.NUMID = c.NUMID AND t.DVID = c.DVID
             LEFT JOIN
-                LOCALCONSSEG.PAIS p ON p.CODPAIS = t.CODPAIS
+                ${paisTbl} p ON p.CODPAIS = t.CODPAIS
             LEFT JOIN
-                LOCALCONSSEG.ESTADO e ON e.CODESTADO = t.CODESTADO
+                ${estadoTbl} e ON e.CODESTADO = t.CODESTADO
             LEFT JOIN
-                LOCALCONSSEG.CIUDAD ci ON ci.CODPAIS = t.CODPAIS AND ci.CODESTADO = t.CODESTADO AND ci.CODCIUDAD = t.CODCIUDAD
+                ${ciudadTbl} ci ON ci.CODPAIS = t.CODPAIS AND ci.CODESTADO = t.CODESTADO AND ci.CODCIUDAD = t.CODCIUDAD
             LEFT JOIN
-                LOCALCONSSEG.MUNICIPIO m ON m.CODPAIS = t.CODPAIS AND m.CODESTADO = t.CODESTADO AND m.CODCIUDAD = t.CODCIUDAD AND m.CODMUNICIPIO = t.CODMUNICIPIO
+                ${municipioTbl} m ON m.CODPAIS = t.CODPAIS AND m.CODESTADO = t.CODESTADO AND m.CODCIUDAD = t.CODCIUDAD AND m.CODMUNICIPIO = t.CODMUNICIPIO
             LEFT JOIN
-                LOCALCONSSEG.ZONA_POSTAL zp ON zp.ZONAPOSTAL = t.ZIP
+                ${zonaPostalTbl} zp ON zp.ZONAPOSTAL = t.ZIP
             WHERE
                 c.TIPOID = :tipoid AND c.NUMID = :numid AND c.DVID = :dvid
         `;
