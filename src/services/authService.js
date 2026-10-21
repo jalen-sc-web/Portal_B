@@ -1,4 +1,5 @@
 import Auth from "../db/Auth.js";
+import Portal from "../db/Portal.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import {
@@ -93,16 +94,30 @@ export const loginUser = async ({ username, password }) => {
     throw error;
   }
 
+  let roles = ["ASEGURADO"];
+  if (isAdmin) {
+    roles = ["ADMIN"];
+  } else {
+    try {
+      roles = await Portal.getRolesByCedula({ tipoid: "V", numid: searchIdentifier, dvid: "0" });
+    } catch (e) {
+      roles = ["ASEGURADO"];
+    }
+  }
+  const activeRole = roles[0] || (isAdmin ? "ADMIN" : "ASEGURADO");
+
   const userData = {
     username: user.CODUSU,
     nombre: user.NOMUSU,
-    role: user.CODPERFIL,
+    role: activeRole,
+    roles,
+    activeRole,
     email: user.EMAIL,
   };
 
   if (user.CAMBIOCLV === "S") {
     // Emite token temporal de 5m con alcance de cambio de contraseña
-    const tempToken = generateUserToken(user, "5m");
+    const tempToken = generateUserToken({ ...user, roles, activeRole }, "5m");
     return {
       requireChange: true,
       token: tempToken,
@@ -112,7 +127,7 @@ export const loginUser = async ({ username, password }) => {
     };
   }
 
-  const token = generateUserToken(user);
+  const token = generateUserToken({ ...user, roles, activeRole });
 
   return {
     requireChange: false,
