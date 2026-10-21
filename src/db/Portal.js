@@ -9,23 +9,31 @@ import oracledb from "oracledb";
  * @param {string} params.tipoid - Tipo de documento ('V', 'E', 'J', 'G', etc.)
  * @param {string|number} params.numid - Número de cédula/identificación sin formato
  * @param {string|number} params.dvid - Dígito verificador (por defecto '0')
- * @returns {Promise<Array<string>>} Lista normalizada de nombres de rol (ej: ['ASEGURADO', 'TOMADOR'])
+ * @returns {Promise<Array<string>>} Lista normalizada de nombres de rol (ej: ['TITULAR', 'INTERMEDIARIO'])
  */
 const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
   let connection;
-  const cleanTipoid = String(tipoid || "V").trim().toUpperCase();
+  const cleanTipoid = String(tipoid || "V")
+    .trim()
+    .toUpperCase();
   const cleanNumId = String(numid || "").trim();
   const cleanDvid = String(dvid ?? "0").trim();
 
-  console.log(`[DB fn_devuelve_rol] ---> ENTRADA: tipoid='${cleanTipoid}', numid='${cleanNumId}', dvid='${cleanDvid}'`);
+  console.log(
+    `[DB fn_devuelve_rol] ---> ENTRADA: tipoid='${cleanTipoid}', numid='${cleanNumId}', dvid='${cleanDvid}'`,
+  );
 
   try {
     if (!cleanNumId) {
-      console.warn("[DB fn_devuelve_rol] numid vacío, retornando ['ASEGURADO'] por defecto");
-      return ["ASEGURADO"];
+      console.warn(
+        "[DB fn_devuelve_rol] numid vacío, retornando ['TITULAR'] por defecto",
+      );
+      return ["TITULAR"];
     }
 
-    console.log("[DB fn_devuelve_rol] 1. Obteniendo conexión de Acsel (JALEN)...");
+    console.log(
+      "[DB fn_devuelve_rol] 1. Obteniendo conexión de Acsel (JALEN)...",
+    );
     connection = await getAcselConnection();
     console.log("[DB fn_devuelve_rol] 2. Conexión de Acsel establecida.");
 
@@ -46,13 +54,16 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
     console.log("[DB fn_devuelve_rol] 3. Ejecutando PL/SQL con binds:", {
       tipoid: binds.tipoid,
       numid: binds.numid,
-      dvid: binds.dvid
+      dvid: binds.dvid,
     });
 
     const result = await connection.execute(sql, binds);
     const cursor = result.outBinds?.cursor;
 
-    console.log("[DB fn_devuelve_rol] 4. Ejecución completada. ¿Cursor recibido?:", !!cursor);
+    console.log(
+      "[DB fn_devuelve_rol] 4. Ejecución completada. ¿Cursor recibido?:",
+      !!cursor,
+    );
 
     const rawRows = [];
     if (cursor) {
@@ -61,20 +72,32 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
       while ((row = await cursor.getRow())) {
         count++;
         rawRows.push(row);
-        console.log(`[DB fn_devuelve_rol] Fila ${count} del cursor:`, JSON.stringify(row));
+        console.log(
+          `[DB fn_devuelve_rol] Fila ${count} del cursor:`,
+          JSON.stringify(row),
+        );
         if (count > 500) {
-          console.warn("[DB fn_devuelve_rol] Límite de seguridad alcanzado al leer cursor de roles (500)");
+          console.warn(
+            "[DB fn_devuelve_rol] Límite de seguridad alcanzado al leer cursor de roles (500)",
+          );
           break;
         }
       }
-      console.log(`[DB fn_devuelve_rol] 5. Total filas leídas del cursor: ${count}`);
+      console.log(
+        `[DB fn_devuelve_rol] 5. Total filas leídas del cursor: ${count}`,
+      );
       try {
         await cursor.close();
       } catch (closeCursorErr) {
-        console.error("[DB fn_devuelve_rol] Error al cerrar cursor de roles:", closeCursorErr);
+        console.error(
+          "[DB fn_devuelve_rol] Error al cerrar cursor de roles:",
+          closeCursorErr,
+        );
       }
     } else {
-      console.warn("[DB fn_devuelve_rol] El outBind cursor es nulo o indefinido.");
+      console.warn(
+        "[DB fn_devuelve_rol] El outBind cursor es nulo o indefinido.",
+      );
     }
 
     // Extraer y normalizar los nombres de rol de las filas del cursor
@@ -100,8 +123,10 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
 
     // Si el set está vacío, asigna al menos el rol base ASEGURADO
     if (rolesSet.size === 0) {
-      console.log("[DB fn_devuelve_rol] Sin roles devueltos en cursor, asignando ['ASEGURADO']");
-      rolesSet.add("ASEGURADO");
+      console.log(
+        "[DB fn_devuelve_rol] Sin roles devueltos en cursor, asignando ['TITULAR']",
+      );
+      rolesSet.add("TITULAR");
     }
 
     const finalRoles = Array.from(rolesSet);
@@ -110,14 +135,19 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
   } catch (error) {
     console.error("[DB fn_devuelve_rol] ❌ ERROR en ejecución:", error);
     // Fallback de contingencia: no interrumpir el login si la función falla o no encuentra pólizas
-    return ["ASEGURADO"];
+    return ["TITULAR"];
   } finally {
     if (connection) {
       try {
         await connection.close();
-        console.log("[DB fn_devuelve_rol] Conexión de Acsel cerrada correctamente.");
+        console.log(
+          "[DB fn_devuelve_rol] Conexión de Acsel cerrada correctamente.",
+        );
       } catch (closeErr) {
-        console.error("[DB fn_devuelve_rol] Error al cerrar conexión de Acsel:", closeErr);
+        console.error(
+          "[DB fn_devuelve_rol] Error al cerrar conexión de Acsel:",
+          closeErr,
+        );
       }
     }
   }
