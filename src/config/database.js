@@ -9,9 +9,6 @@ oracledb.fetchAsBuffer = [oracledb.BLOB];
 // Inicialización de Thick Mode solo si está explícitamente configurado; de lo contrario opera en Thin Mode nativo
 try {
   oracledb.initOracleClient();
-  oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
-  oracledb.fetchAsString = [oracledb.CLOB];
-  oracledb.fetchAsBuffer = [oracledb.BLOB];
 
   console.log("📦 Cliente Oracle inicializado en Thick Mode.");
 } catch (err) {
