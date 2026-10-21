@@ -9,7 +9,7 @@ import oracledb from "oracledb";
  * @param {string} params.tipoid - Tipo de documento ('V', 'E', 'J', 'G', etc.)
  * @param {string|number} params.numid - Número de cédula/identificación sin formato
  * @param {string|number} params.dvid - Dígito verificador (por defecto '0')
- * @returns {Promise<Array<string>>} Lista normalizada de nombres de rol (ej: ['TITULAR', 'INTERMEDIARIO'])
+ * @returns {Promise<Array<string>>} Lista normalizada de nombres de rol (ej: ['ASEGURADO', 'INTERMEDIARIO'])
  */
 const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
   let connection;
@@ -26,9 +26,9 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
   try {
     if (!cleanNumId) {
       console.warn(
-        "[DB fn_devuelve_rol] numid vacío, retornando ['TITULAR'] por defecto",
+        "[DB fn_devuelve_rol] numid vacío, retornando ['ASEGURADO'] por defecto",
       );
-      return ["TITULAR"];
+      return ["ASEGURADO"];
     }
 
     console.log(
@@ -124,9 +124,9 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
     // Si el set está vacío, asigna al menos el rol base ASEGURADO
     if (rolesSet.size === 0) {
       console.log(
-        "[DB fn_devuelve_rol] Sin roles devueltos en cursor, asignando ['TITULAR']",
+        "[DB fn_devuelve_rol] Sin roles devueltos en cursor, asignando ['ASEGURADO']",
       );
-      rolesSet.add("TITULAR");
+      rolesSet.add("ASEGURADO");
     }
 
     const finalRoles = Array.from(rolesSet);
@@ -135,7 +135,7 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
   } catch (error) {
     console.error("[DB fn_devuelve_rol] ❌ ERROR en ejecución:", error);
     // Fallback de contingencia: no interrumpir el login si la función falla o no encuentra pólizas
-    return ["TITULAR"];
+    return ["ASEGURADO"];
   } finally {
     if (connection) {
       try {
