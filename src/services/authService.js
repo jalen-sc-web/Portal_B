@@ -1,5 +1,6 @@
 import Auth from "../db/Auth.js";
 import Portal from "../db/Portal.js";
+import UserRoles from "../db/UserRoles.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import {
@@ -94,15 +95,24 @@ export const loginUser = async ({ username, password }) => {
     throw error;
   }
 
-  let roles = ["ASEGURADO"];
+  let cursorRoles = ["ASEGURADO"];
   if (isAdmin) {
-    roles = ["ADMIN"];
+    cursorRoles = ["ADMIN"];
   } else {
     try {
-      roles = await Portal.getRolesByCedula({ tipoid: "V", numid: searchIdentifier, dvid: "0" });
+      cursorRoles = await Portal.getRolesByCedula({ tipoid: "V", numid: searchIdentifier, dvid: "0" });
     } catch (e) {
-      roles = ["ASEGURADO"];
+      cursorRoles = ["ASEGURADO"];
     }
+  }
+
+  // Sincronizar los roles del cursor con WEBPORTAL.ROL_USUARIO
+  let roles = cursorRoles;
+  try {
+    roles = await UserRoles.syncUserRoles(user.CODUSU, cursorRoles);
+  } catch (syncErr) {
+    console.error("[AuthService] Error al sincronizar roles con ROL_USUARIO:", syncErr.message);
+    roles = cursorRoles;
   }
   const activeRole = roles[0] || (isAdmin ? "ADMIN" : "ASEGURADO");
 
