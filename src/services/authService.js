@@ -95,34 +95,83 @@ export const loginUser = async ({ username, password }) => {
     throw error;
   }
 
-  let cursorRoles = ["ASEGURADO"];
+  let cursorRoles = [{ codrol: 2, nombre: "ASEGURADO" }];
   if (isAdmin) {
-    cursorRoles = ["ADMIN"];
+    cursorRoles = [{ codrol: 1, nombre: "ADMIN" }];
   } else {
     try {
-      cursorRoles = await Portal.getRolesByCedula({ tipoid: "V", numid: searchIdentifier, dvid: "0" });
+      const resRoles = await Portal.getRolesByCedula({ tipoid: "V", numid: searchIdentifier, dvid: "0" });
+      cursorRoles = Array.isArray(resRoles) && resRoles.length > 0 
+        ? resRoles 
+        : [{ codrol: 2, nombre: "ASEGURADO" }];
     } catch (e) {
-      cursorRoles = ["ASEGURADO"];
+      cursorRoles = [{ codrol: 2, nombre: "ASEGURADO" }];
     }
   }
 
+  // 1. Extraemos temporalmente solo los nombres (strings) para que la función de sync actúe exactamente como antes
+  const roleNamesForSync = cursorRoles.map(r => typeof r === 'string' ? r : r.nombre).filter(Boolean);
+
   // Sincronizar los roles del cursor con WEBPORTAL.ROL_USUARIO
-  let roles = cursorRoles;
+  let syncedRoleNames = roleNamesForSync;
   try {
-    roles = await UserRoles.syncUserRoles(user.CODUSU, cursorRoles);
+    syncedRoleNames = await UserRoles.syncUserRoles(user.CODUSU, roleNamesForSync);
   } catch (syncErr) {
     console.error("[AuthService] Error al sincronizar roles con ROL_USUARIO:", syncErr.message);
-    roles = cursorRoles;
+    syncedRoleNames = roleNamesForSync;
   }
-  const activeRole = roles[0] || (isAdmin ? "ADMIN" : "ASEGURADO");
+
+  let roles = cursorRoles.filter(r => {
+    const name = typeof r === 'string' ? r : r.nombre;
+    return syncedRoleNames.includes(name);
+  });
+
+  if (roles.length === 0) {
+    roles = [{ codrol: isAdmin ? 1 : 2, nombre: isAdmin ? "ADMIN" : "ASEGURADO" }];
+  } else {
+    roles.sort((a, b) => {
+      const codA = typeof a === 'object' && a !== null ? Number(a.codrol) || 0 : 0;
+      const codB = typeof b === 'object' && b !== null ? Number(b.codrol) || 0 : 0;
+      return codB - codA;
+    });
+  }
+
+  const activeRole = roles[0] || { codrol: isAdmin ? 1 : 2, nombre: isAdmin ? "ADMIN" : "ASEGURADO" };
+
+
+  // ==========================================
+  // OBTENER EL MENÚ SEGÚN EL ROL
+  // ==========================================
+  
+  let menu = [];
+  try {
+    const rawMenu = await UserRoles.getMenuByRole(user.CODUSU);
+    
+    // Mapeamos las propiedades a minúsculas para estandarizar el frontend
+    menu = rawMenu.map(item => ({
+      codmenu: item.CODMENU ?? item.codmenu,
+      nombre: item.NOMBRE ?? item.nombre,
+      descripcion: item.DESCRIPCION ?? item.descripcion,
+      ruta: item.RUTA ?? item.ruta,
+      icono: item.ICONO ?? item.icono,
+      orden: item.ORDEN ?? item.orden,
+      componente: item.COMPONENTE ?? item.componente,
+      stsmenu: item.STSMENU ?? item.stsmenu,
+      codrol: item.CODROL ?? item.codrol
+    }));
+  } catch (menuErr) {
+    console.error("[AuthService] Error al obtener el menú del rol:", menuErr.message);
+    menu = [];
+  }
 
   const userData = {
     username: user.CODUSU,
     nombre: user.NOMUSU,
-    role: activeRole,
+    role: activeRole.nombre,
     roles,
     activeRole,
     email: user.EMAIL,
+    menu
   };
 
   if (user.CAMBIOCLV === "S") {

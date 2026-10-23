@@ -263,7 +263,81 @@ const syncUserRoles = async (codusu, cursorRoles = []) => {
   }
 };
 
+const getMenuByRole = async (codusu) => {
+  const cleanUser = String(codusu || "").trim().toUpperCase();
+  if (!cleanUser) {
+    return [];
+  }
+
+  let connection;
+  try {
+    connection = await getPortalConnection();
+    const rolUsuariosTable = portalTable("ROL_USUARIOS");
+
+    // 1. Buscar los roles activos que tiene el usuario
+    const rolesResult = await connection.execute(
+      `SELECT codrol FROM ${rolUsuariosTable} WHERE UPPER(codusu) = :codusu AND stsrol_usu = 'ACT'`,
+      { codusu: cleanUser },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    const userRoles = rolesResult.rows || [];
+    if (userRoles.length === 0) {
+      console.warn(`[UserRoles] El usuario ${cleanUser} no tiene roles activos asignados.`);
+      return [];
+    }
+
+    // Extraemos los códigos de rol únicos
+    const codRoles = [...new Set(userRoles.map(r => Number(r.CODROL)))] ;
+
+    // 2. Construimos dinámicamente los placeholders seguros para Oracle (:rol0, :rol1, ...)
+    const placeholders = codRoles.map((_, index) => `:rol${index}`).join(", ");
+    const binds = {};
+    codRoles.forEach((rol, index) => {
+      binds[`rol${index}`] = rol;
+    });
+
+    // 3. Consulta sin DISTINCT
+    const menuSql = `
+      SELECT
+        codmenu, 
+        nombre, 
+        descripcion, 
+        ruta, 
+        icono, 
+        orden, 
+        componente, 
+        stsmenu,
+        codrol
+      FROM WEBPORTAL.VW_MENU
+      WHERE codrol IN (${placeholders})
+      ORDER BY codrol ASC, orden ASC
+    `;
+
+    const menuResult = await connection.execute(
+      menuSql,
+      binds,
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    return menuResult.rows || [];
+
+  } catch (error) {
+    console.error("[UserRoles] Error al obtener el menú del usuario:", error.message);
+    return [];
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (closeErr) {
+        console.error("[UserRoles] Error al cerrar conexión:", closeErr);
+      }
+    }
+  }
+};
+
 export default {
   getUserRoles,
   syncUserRoles,
+  getMenuByRole
 };

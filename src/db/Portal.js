@@ -1,4 +1,4 @@
-import { getAcselConnection, acselTable } from "../config/database.js";
+import { getAcselConnection, acselTable, getPortalConnection, portalTable } from "../config/database.js";
 import oracledb from "oracledb";
 
 /**
@@ -13,6 +13,7 @@ import oracledb from "oracledb";
  */
 const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
   let connection;
+  let connectionPortal;
   const cleanTipoid = String(tipoid || "V")
     .trim()
     .toUpperCase();
@@ -35,6 +36,7 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
       "[DB fn_devuelve_rol] 1. Obteniendo conexión de Acsel (JALEN)...",
     );
     connection = await getAcselConnection();
+    connectionPortal = await getPortalConnection();
     console.log("[DB fn_devuelve_rol] 2. Conexión de Acsel establecida.");
 
     // Invocar la función PL/SQL que retorna SYS_REFCURSOR
@@ -129,7 +131,39 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
       rolesSet.add("ASEGURADO");
     }
 
-    const finalRoles = Array.from(rolesSet);
+    // =========================================================================
+    // BUSCAR EN LA TABLA ROLES DE WEBPORTAL PARA OBTENER EL CODROL Y EL NOMBRE OFICIAL
+    // =========================================================================
+    const rolesTable = portalTable("ROLES");
+    const roleNamesArray = Array.from(rolesSet);
+
+    const placeholders = roleNamesArray.map((_, index) => `:rName${index}`).join(", ");
+    const roleBinds = {};
+    roleNamesArray.forEach((name, index) => {
+      roleBinds[`rName${index}`] = name;
+    });
+
+    const rolesQuery = `
+      SELECT codrol, nombre 
+      FROM ${rolesTable} 
+      WHERE UPPER(nombre) IN (${placeholders})
+        AND stsrol = 'ACT' -- O el estatus que maneje tu tabla de roles si aplica
+    `;
+
+    const rolesResult = await connectionPortal.execute(
+      rolesQuery,
+      roleBinds,
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    const dbRoles = rolesResult.rows || [];
+
+    // Mapear los resultados obtenidos de la BD con codrol y nombre
+    const finalRoles = dbRoles.map(row => ({
+      codrol: Number(row.CODROL),
+      nombre: String(row.NOMBRE).trim().toUpperCase()
+    }));
+
     console.log(`[DB fn_devuelve_rol] <--- SALIDA FINAL ROLES:`, finalRoles);
     return finalRoles;
   } catch (error) {
