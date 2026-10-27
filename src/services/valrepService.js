@@ -134,10 +134,30 @@ export const getLvals = async (tipolval) => {
     return result.data;
 };
 
+export const getParents = async () => {
+    const cacheKey = `catalog_parents_PARENT`;
+    const cached = getFromCache(cacheKey);
+    if (cached) return cached;
+
+    // Puedes pasar directamente 'PARENT' o invocar la capa de datos reutilizando la consulta de lval
+    const result = await Valrep.getParent({ tipolval: 'PARENT' });
+    
+    if (result.error) {
+        const err = new Error(result.error);
+        err.statusCode = 500;
+        err.isOperational = true;
+        throw err;
+    }
+
+    setInCache(cacheKey, result.data);
+    return result.data;
+};
+
 export default {
     getCountries,
     getStates,
     getCities,
     getMunicipalities,
-    getLvals
+    getLvals,
+    getParents
 };

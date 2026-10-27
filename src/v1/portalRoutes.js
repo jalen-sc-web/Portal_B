@@ -5,6 +5,7 @@ import { verifyToken } from '../middlewares/authMiddleware.js';
 const router = express.Router();
 
 router
-    .post("/search-owner", verifyToken, portalController.getOwner);
+    .post("/search-owner", verifyToken, portalController.getOwner)
+    .post("/full-rate", portalController.getFullRate)
         
 export default router;

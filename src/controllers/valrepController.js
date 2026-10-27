@@ -72,10 +72,24 @@ const getLval = async (req, res, next) => {
     }
 };
 
+const getParent = async (req, res, next) => {
+    try {
+        const data = await valrepService.getParents();
+        return res.status(200).json({
+            status: true,
+            data,
+            message: "Parentescos obtenidos exitosamente."
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export default {
     getCountry,
     getState,
     getCity,
     getMunicipality,
-    getLval
+    getLval,
+    getParent
 };

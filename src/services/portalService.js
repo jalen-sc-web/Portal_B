@@ -95,6 +95,124 @@ export const getOwnerDetails = async ({ tipoid, numid, dvid }) => {
     };
 };
 
+export const getFullRateDetails = async ({ familiares }) => {
+    if (!familiares || !Array.isArray(familiares) || familiares.length === 0) {
+        const error = new Error("El campo familiares es requerido y debe ser un array con al menos un integrante.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    for (const fam of familiares) {
+        if (!fam.codParent || fam.edad === undefined || fam.edad === null || fam.edad === '') {
+            const error = new Error("Cada familiar debe incluir un codParent y una edad válidos.");
+            error.statusCode = 400;
+            error.isOperational = true;
+            throw error;
+        }
+    }
+
+    const familiaresString = familiares.map(f => `${f.codParent}:${f.edad}`).join(',');
+
+    const result = await Portal.getFullRate({ familiares: familiaresString });
+
+    if (result.permissionError) {
+        const error = new Error(result.permissionError);
+        error.statusCode = 403;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (result.error) {
+        const error = new Error(result.error);
+        error.statusCode = 500;
+        error.isOperational = true;
+        throw error;
+    }
+
+    // Validamos que result.data contenga las estructuras (completa e individual)
+    const rowsCompleta = result.data?.completa || [];
+    const rowsIndividual = result.data?.individual || [];
+
+    if (rowsCompleta.length === 0 && rowsIndividual.length === 0) {
+        return {
+            found: false,
+            data: { planes: [], coberturas: [], tarifasIndividuales: [] },
+            message: "No se encontraron tarifas disponibles para los familiares proporcionados."
+        };
+    }
+
+    // ==========================================
+    // 1. Procesar y agrupar para la lista de planes
+    // ==========================================
+    const planesMap = new Map();
+
+    rowsCompleta.forEach(row => {
+        const key = `${row.CODPLAN}-${row.REVPLAN}`;
+        
+        if (!planesMap.has(key)) {
+            planesMap.set(key, {
+                codPlan: row.CODPLAN,
+                revPlan: row.REVPLAN,
+                descPlan: row.DESCPLAN,
+                primaTotal: 0,
+                sumaAsegurada: 0,
+                deducible: row.DEDUCIBLE || row.VALDED || 0 // <-- Incluimos el deducible a nivel de plan
+            });
+        }
+
+        const planData = planesMap.get(key);
+
+        // Sumamos la prima de esta cobertura al total del plan
+        planData.primaTotal += Number(row.PRIMA || 0);
+
+        // Si esta fila corresponde a la cobertura 8064, capturamos su suma asegurada para el plan
+        if (row.CODCOBERT === '8064') {
+            planData.sumaAsegurada = Number(row.SUMAASEG || 0);
+            planData.deducible = row.DEDUCIBLE || row.VALDED || planData.deducible;
+        }
+    });
+
+    const planes = Array.from(planesMap.values());
+
+    // ==========================================
+    // 2. El desglose detallado por cobertura
+    // ==========================================
+    const coberturas = rowsCompleta.map(row => ({
+        codPlan: row.CODPLAN,
+        revPlan: row.REVPLAN,
+        codCobert: row.CODCOBERT,
+        descCobert: row.DESCCOBERT,
+        prima: row.PRIMA,
+        sumaAseg: row.SUMAASEG,
+        deducible: row.DEDUCIBLE || row.VALDED || 0 // <-- Incluimos el deducible en cada cobertura
+    }));
+
+    // ==========================================
+    // 3. Procesar las tarifas individuales
+    // ==========================================
+    const tarifasIndividuales = rowsIndividual.map(row => ({
+        codParent: row.CODPARENT,
+        edadFamiliar: row.EDADFAMILIAR,
+        codPlan: row.CODPLAN || null,
+        revPlan: row.REVPLAN || null,
+        descPlan: row.DESCPLAN,
+        primaTotalIndividual: Number(row.PRIMATOTALINDIVIDUAL || 0),
+        sumaAseguradaPlan: Number(row.SUMAASEGURADAPLAN || 0)
+    }));
+
+    return {
+        found: true,
+        data: {
+            planes,         
+            coberturas,
+            tarifasIndividuales // <--- Nuevos datos del segundo cursor
+        },
+        message: "Tarifas agrupadas y obtenidas exitosamente."
+    };
+};
+
 export default {
-    getOwnerDetails
+    getOwnerDetails,
+    getFullRateDetails
 };

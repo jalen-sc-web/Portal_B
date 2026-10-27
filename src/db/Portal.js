@@ -273,7 +273,105 @@ const getOwner = async (data) => {
   }
 };
 
+const getFullRate = async (data) => {
+  let connection;
+
+  try {
+    connection = await getAcselConnection();
+
+    let { familiares } = data; // Recibe la cadena formateada desde el service: '0001:25,0007:50'
+
+    // ==========================================
+    // 1. PRIMER CURSOR: OBTENER_TARIFA_COMPLETA
+    // ==========================================
+    const resultCompleta = await connection.execute(
+      `BEGIN
+         :cursor := WEBPORTAL.PR_PORTAL.OBTENER_TARIFA_COMPLETA(:familiares);
+       END;`,
+      {
+        familiares: { val: familiares, type: oracledb.STRING },
+        cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT }
+      },
+      {
+        outFormat: oracledb.OUT_FORMAT_OBJECT
+      }
+    );
+
+    const resultSetCompleta = resultCompleta.outBinds.cursor;
+    // getRows() permite traer todas las filas de golpe de forma más eficiente (puedes pasarle un límite si son muchas, ej: getRows(100))
+    const rowsCompleta = await resultSetCompleta.getRows();
+    await resultSetCompleta.close();
+
+
+    // ==========================================
+    // 2. SEGUNDO CURSOR: OBTENER_TARIFA_INDIVIDUAL
+    // ==========================================
+    const resultIndividual = await connection.execute(
+      `BEGIN
+         :cursor := WEBPORTAL.PR_PORTAL.OBTENER_TARIFA_INDIVIDUAL(:familiares);
+       END;`,
+      {
+        familiares: { val: familiares, type: oracledb.STRING },
+        cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT }
+      },
+      {
+        outFormat: oracledb.OUT_FORMAT_OBJECT
+      }
+    );
+
+    const resultSetIndividual = resultIndividual.outBinds.cursor;
+    const rowsIndividual = await resultSetIndividual.getRows();
+    await resultSetIndividual.close();
+
+
+    // ==========================================
+    // VALIDACIONES Y RETORNO
+    // ==========================================
+    const hasDataCompleta = rowsCompleta && rowsCompleta.length > 0;
+    const hasDataIndividual = rowsIndividual && rowsIndividual.length > 0;
+
+    if (!hasDataCompleta && !hasDataIndividual) {
+      return { 
+        status: false, 
+        data: { completa: [], individual: [] }, 
+        message: "No se encontraron tarifas disponibles." 
+      };
+    }
+
+    return {
+      status: true,
+      data: {
+        completa: rowsCompleta,
+        individual: rowsIndividual
+      },
+      message: "Tarifas obtenidas exitosamente.",
+    };
+
+  } catch (error) {
+    console.error("Error al obtener tarifas completas e individuales:", error);
+    return {
+      status: false,
+      error: "Error en la base de datos al consultar tarifas",
+      message: "Error al obtener tarifas",
+    };
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (closeErr) {
+        console.error(
+          "Error al cerrar la conexión a Oracle en getFullRate:",
+          closeErr,
+        );
+      }
+    }
+  }
+};
+
+
+
 export default {
   getOwner,
   getRolesByCedula,
+  getFullRate
 };

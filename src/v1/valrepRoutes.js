@@ -10,12 +10,14 @@ router
     .get("/city", valrepController.getCity)
     .get("/municipality", valrepController.getMunicipality)
     .get("/lval", valrepController.getLval)
+    .get("/parent", valrepController.getParent)
 
     // Soporte retrocompatible (POST)
     .post("/country", valrepController.getCountry)
     .post("/state", valrepController.getState)
     .post("/city", valrepController.getCity)
     .post("/municipality", valrepController.getMunicipality)
-    .post("/lval", valrepController.getLval);
+    .post("/lval", valrepController.getLval)
+    .post("/parent", valrepController.getParent);
        
 export default router;

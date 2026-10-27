@@ -72,10 +72,22 @@ const getLval = async ({ tipolval }) => {
   return executeCatalogQuery(query, { tipolval });
 };
 
+const getParent = async () => {
+  const query = `
+        SELECT CODLVAL, DESCRIP
+        FROM ${acselTable('"LVAL"')}
+        WHERE TIPOLVAL = 'PARENT'
+          AND CODLVAL IN ('0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008')
+        ORDER BY CODLVAL
+    `;
+  return executeCatalogQuery(query, {});
+};
+
 export default {
   getCountry,
   getState,
   getCity,
   getMunicipality,
   getLval,
+  getParent
 };
