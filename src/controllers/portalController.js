@@ -54,7 +54,67 @@ const getFullRate = async (req, res, next) => {
     }
 };
 
+const saveQuote = async (req, res, next) => {
+    try {
+        const {
+            codProd,
+            nombreAseg,
+            telefono,
+            email,
+            prima,
+            sumaAseg,
+            codInter,
+            codOfiEmi,
+            hcmPlan,
+            asegurados,
+            coberturas,
+            codUsuCrea
+        } = req.body;
+
+        // Validaciones básicas de integridad del payload
+        if (!codProd || !nombreAseg || !prima || !hcmPlan || !asegurados || !Array.isArray(asegurados) || asegurados.length === 0) {
+            return res.status(400).json({
+                status: false,
+                message: "Faltan datos obligatorios para procesar y guardar la cotización maestra o sus dependientes."
+            });
+        }
+
+        // Llamada al servicio que ejecuta la transacción o el PL/SQL en Oracle
+        const result = await portalService.saveQuoteDetails({
+            codProd,
+            nombreAseg,
+            telefono,
+            email,
+            prima,
+            sumaAseg,
+            codInter,
+            codOfiEmi,
+            hcmPlan,
+            asegurados,
+            coberturas: coberturas || [],
+            codUsuCrea
+        });
+
+        if (!result.success) {
+            return res.status(400).json({
+                status: false,
+                message: result.message || "No se pudo completar el registro de la cotización."
+            });
+        }
+
+        return res.status(201).json({
+            status: true,
+            data: result.data,
+            message: result.message || "Cotización guardada exitosamente en el esquema WEBPORTAL."
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
 export default {
     getOwner,
-    getFullRate
+    getFullRate,
+    saveQuote
 };

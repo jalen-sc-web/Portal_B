@@ -7,5 +7,6 @@ const router = express.Router();
 router
     .post("/search-owner", verifyToken, portalController.getOwner)
     .post("/full-rate", portalController.getFullRate)
+    .post("/save-quote", portalController.saveQuote)
         
 export default router;
