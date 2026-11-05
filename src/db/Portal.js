@@ -368,10 +368,182 @@ const getFullRate = async (data) => {
   }
 };
 
+export const saveQuote = async (data) => {
 
+  if (!data) {
+    return { status: false, message: "EL PAYLOAD DE LA COTIZACIÓN ESTÁ VACÍO." };
+  }
+
+  const { codProd, prima, hcmPlan, asegurados, coberturas } = data;
+
+  const nombreAseg = data.nombreAseg ? String(data.nombreAseg).toUpperCase() : '';
+  const codUsuCrea = data.codUsuCrea ? String(data.codUsuCrea).toUpperCase() : 'PORTALASEG';
+
+  if (!codProd) {
+    return { status: false, message: "EL CÓDIGO DE PRODUCTO (CODPROD) ES OBLIGATORIO." };
+  }
+  if (!nombreAseg || nombreAseg.trim() === "") {
+    return { status: false, message: "EL NOMBRE DEL ASEGURADO TITULAR ES OBLIGATORIO." };
+  }
+  if (prima === undefined || prima === null || isNaN(prima)) {
+    return { status: false, message: "LA PRIMA TOTAL DE LA COTIZACIÓN ES INVÁLIDA O REQUERIDA." };
+  }
+
+  if (!hcmPlan || !hcmPlan.codPlan) {
+    return { status: false, message: "LOS DATOS DEL PLAN HCM (HCMPLAN Y SU CODPLAN) SON OBLIGATORIOS." };
+  }
+
+  if (!Array.isArray(asegurados) || asegurados.length === 0) {
+    return { status: false, message: "DEBE INCLUIR AL MENOS UN ASEGURADO EN LA COTIZACIÓN." };
+  }
+
+  if (!Array.isArray(coberturas) || coberturas.length === 0) {
+    return { status: false, message: "LA COTIZACIÓN DEBE CONTENER EL DESGLOSE DE COBERTURAS." };
+  }
+
+  let connection;
+
+  try {
+    connection = await getPortalConnection();
+
+    // 2. INSERTAR CABECERA EN WEBPORTAL.COTIZACIONES
+    const insertCotizacionQuery = `
+      INSERT INTO WEBPORTAL.COTIZACIONES (
+        CODCOTI_REF, CODPROD, NOMBRE_ASEG, TELEFONO, EMAIL, 
+        PRIMA, SUMA_ASEG, CODINTER, CODOFIEMI, STSCOT, FECHACREA, CODUSUCREA
+      ) VALUES (
+        'TEMP_REF', :codProd, :nombreAseg, :telefono, :email, 
+        :prima, :sumaAseg, :codInter, :codOfiEmi, 'VAL', SYSTIMESTAMP, :codUsuCrea
+      ) RETURNING CODCOTI INTO :codcoti
+    `;
+
+    const bindVarsCotizacion = {
+      codProd,
+      nombreAseg,
+      telefono: data.telefono || null,
+      email: data.email || null,
+      prima,
+      sumaAseg: data.sumaAseg || null,
+      codInter: data.codInter || '000001',
+      codOfiEmi: data.codOfiEmi || '100101',
+      codUsuCrea,
+      codcoti: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
+    };
+
+    const cotizacionRes = await connection.execute(insertCotizacionQuery, bindVarsCotizacion);
+    const codCoti = cotizacionRes.outBinds.codcoti[0];
+
+    // 3. ACTUALIZAR EL CODCOTI_REF COMBINANDO EL CODPROD + EL CODCOTI RECIÉN GENERADO
+    const codCotiRef = `${codProd}-${codCoti}`;
+    const updateRefQuery = `
+      UPDATE WEBPORTAL.COTIZACIONES 
+      SET CODCOTI_REF = :codCotiRef 
+      WHERE CODCOTI = :codCoti
+    `;
+    await connection.execute(updateRefQuery, { codCotiRef, codCoti });
+
+    // 4. INSERTAR DETALLE EN WEBPORTAL.COTIZACION_HCM
+    const insertHcmQuery = `
+      INSERT INTO WEBPORTAL.COTIZACION_HCM (
+        CODCOTI, CODPROD, CODPLAN, REVPLAN, NOMBREPLAN, 
+        PRIMA, SUMA_ASEG, DEDUCIBLE, FECHACREA, CODUSUCREA
+      ) VALUES (
+        :codCoti, :codProd, :codPlan, :revPlan, :nombrePlan, 
+        :prima, :sumaAseg, :deducible, SYSTIMESTAMP, :codUsuCrea
+      )
+    `;
+    await connection.execute(insertHcmQuery, {
+      codCoti,
+      codProd: hcmPlan.codProd || codProd,
+      codPlan: hcmPlan.codPlan,
+      revPlan: hcmPlan.revPlan || '01',
+      nombrePlan: hcmPlan.nombrePlan ? String(hcmPlan.nombrePlan).toUpperCase() : null,
+      prima: hcmPlan.prima,
+      sumaAseg: hcmPlan.sumaAseg,
+      deducible: hcmPlan.deducible !== undefined ? hcmPlan.deducible : null,
+      codUsuCrea
+    });
+
+    // 5. INSERTAR ASEGURADOS / FAMILIARES MÚLTIPLES EN WEBPORTAL.COTIZACION_HCM_ASEG
+    const insertAsegQuery = `
+      INSERT INTO WEBPORTAL.COTIZACION_HCM_ASEG (
+        CODCOTI, CODPARENT, EDAD, PRIMA, FECHACREA, CODUSUCREA
+      ) VALUES (
+        :codCoti, :codParent, :edad, :prima, SYSTIMESTAMP, :codUsuCrea
+      )
+    `;
+
+    for (const fam of asegurados) {
+      await connection.execute(insertAsegQuery, {
+        codCoti,
+        codParent: fam.codParent,
+        edad: fam.edad,
+        prima: fam.prima !== undefined ? fam.prima : 0,
+        codUsuCrea
+      });
+    }
+
+    // 6. INSERTAR COBERTURAS DEL PLAN EN WEBPORTAL.COTIZACION_HCM_COB
+    const insertCobQuery = `
+      INSERT INTO WEBPORTAL.COTIZACION_HCM_COB (
+        CODCOTI, CODCOBERT, DESCCOBERT, SUMAASEG_COB, DEDUCIBLE, PRIMA_COB, FECHACREA, CODUSUCREA
+      ) VALUES (
+        :codCoti, :codCobert, :descCobert, :sumaAsegCob, :deducible, :primaCob, SYSTIMESTAMP, :codUsuCrea
+      )
+    `;
+
+    for (const cob of coberturas) {
+      await connection.execute(insertCobQuery, {
+        codCoti,
+        codCobert: cob.codCobert,
+        descCobert: cob.descCobert ? String(cob.descCobert).toUpperCase() : null,
+        sumaAsegCob: (cob.sumaAsegCob !== undefined && cob.sumaAsegCob !== null) ? cob.sumaAsegCob : null,
+        deducible: (cob.deducible !== undefined && cob.deducible !== null) ? cob.deducible : null,
+        primaCob: (cob.primaCob !== undefined && cob.primaCob !== null) ? cob.primaCob : null,
+        codUsuCrea
+      });
+    }
+
+    // COMMIT DE TODA LA TRANSACCIÓN ATÓMICA
+    await connection.commit();
+
+    return {
+      status: true,
+      data: {
+        codCoti,
+        codCotiRef
+      },
+      message: "COTIZACIÓN GUARDADA EXITOSAMENTE EN EL ESQUEMA WEBPORTAL."
+    };
+
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rbErr) {
+        console.error("ERROR AL REALIZAR ROLLBACK EN SAVEQUOTE:", rbErr);
+      }
+    }
+    console.error("ERROR AL GUARDAR LA COTIZACIÓN EN ORACLE:", error);
+    return {
+      status: false,
+      error: "ERROR EN LA BASE DE DATOS AL REGISTRAR LA COTIZACIÓN",
+      message: error.message || "ERROR AL PROCESAR LA COTIZACIÓN"
+    };
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (closeErr) {
+        console.error("ERROR AL CERRAR LA CONEXIÓN A ORACLE EN SAVEQUOTE:", closeErr);
+      }
+    }
+  }
+};
 
 export default {
   getOwner,
   getRolesByCedula,
-  getFullRate
+  getFullRate,
+  saveQuote
 };

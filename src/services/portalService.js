@@ -212,7 +212,107 @@ export const getFullRateDetails = async ({ familiares }) => {
     };
 };
 
+export const saveQuoteDetails = async ({
+    codProd,
+    nombreAseg,
+    telefono,
+    email,
+    prima,
+    sumaAseg,
+    codInter,
+    codOfiEmi,
+    hcmPlan,
+    asegurados,
+    coberturas,
+    codUsuCrea
+}) => {
+    // 1. Validaciones de integridad básicas en la capa de servicio
+    if (!codProd || !nombreAseg || prima === undefined || !hcmPlan) {
+        const error = new Error("Los datos de cabecera y del plan HCM son obligatorios.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (!asegurados || !Array.isArray(asegurados) || asegurados.length === 0) {
+        const error = new Error("Debe incluir al menos un asegurado (titular o dependiente) en la cotización.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    // 2. Empaquetamos el objeto estructurado para enviarlo al modelo de Oracle (Portal.saveQuote)
+    const quotePayload = {
+        codProd,
+        nombreAseg: nombreAseg.trim(),
+        telefono: telefono || null,
+        email: email || null,
+        prima: Number(prima),
+        sumaAseg: Number(sumaAseg || 0),
+        codInter: codInter || null,
+        codOfiEmi: codOfiEmi || null,
+        stscot: 'VAL',
+        codUsuCrea: codUsuCrea,
+        
+        // Detalle HCM
+        hcmPlan: {
+            codProd: hcmPlan.codProd || codProd,
+            codPlan: hcmPlan.codPlan,
+            revPlan: hcmPlan.revplan || hcmPlan.revPlan || '01',
+            nombrePlan: hcmPlan.nombrePlan,
+            prima: Number(hcmPlan.prima),
+            sumaAseg: Number(hcmPlan.sumaAseg),
+            deducible: Number(hcmPlan.deducible || 0)
+        },
+
+        // Lista de asegurados / familiares repetibles (titular, cónyuge, hijos múltiples)
+        asegurados: asegurados.map(fam => ({
+            codParent: String(fam.codParent),
+            edad: Number(fam.edad),
+            prima: Number(fam.prima || 0)
+        })),
+
+        // Desglose de coberturas del plan con sumaaseg_cob y prima_cob
+        coberturas: (coberturas || []).map(cob => ({
+            codCobert: String(cob.codCobert),
+            descCobert: String(cob.descCobert),
+            sumaAsegCob: (cob.sumaAsegCob !== undefined && cob.sumaAsegCob !== null) ? Number(cob.sumaAsegCob) : null,
+            deducible: (cob.deducible !== undefined && cob.deducible !== null) ? Number(cob.deducible) : null,
+            primaCob: (cob.primaCob !== undefined && cob.primaCob !== null) ? Number(cob.primaCob) : null
+        }))
+    };
+
+    // 3. Ejecución en la capa de base de datos (Modelo / Driver Oracle)
+    const result = await Portal.saveQuote(quotePayload);
+
+    if (result.permissionError) {
+        const error = new Error(result.permissionError);
+        error.statusCode = 403;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (result.error) {
+        const error = new Error(result.error);
+        error.statusCode = 500;
+        error.isOperational = true;
+        throw error;
+    }
+
+    // 4. Retorno exitoso con el ID y la referencia generados en Oracle (`CODCOTI` y `CODCOTI_REF`)
+    return {
+        success: true,
+        data: {
+            codCoti: result.data?.codCoti,
+            codCotiRef: result.data?.codCotiRef
+        },
+        message: "Cotización almacenada satisfactoriamente en el esquema WEBPORTAL."
+    };
+};
+
+
 export default {
     getOwnerDetails,
-    getFullRateDetails
+    getFullRateDetails,
+    saveQuoteDetails
 };
