@@ -1,5 +1,6 @@
 import { getAcselConnection, acselTable } from "../config/database.js";
 import oracledb from "oracledb";
+import { logger, serializeError } from "../utils/logger.js";
 
 const executeCatalogQuery = async (sql, binds = {}) => {
   let connection;
@@ -10,14 +11,14 @@ const executeCatalogQuery = async (sql, binds = {}) => {
     });
     return { data: result.rows || [] };
   } catch (error) {
-    console.error("Error en consulta catálogo Acsel:", error);
-    return { error: "Error en la base de datos al consultar catálogo" };
+    logger.error("Error en consulta catálogo Acsel", "ValrepDB.executeCatalogQuery", { error: serializeError(error), sql });
+    return { error: "Error en la base de datos al consultar catálogo", rawError: error };
   } finally {
     if (connection) {
       try {
         await connection.close();
       } catch (err) {
-        console.error("Error al cerrar conexión de catálogo:", err);
+        logger.error("Error al cerrar conexión de catálogo", "ValrepDB.executeCatalogQuery", { error: serializeError(err) });
       }
     }
   }

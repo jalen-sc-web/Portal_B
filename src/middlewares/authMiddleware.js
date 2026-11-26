@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { logger } from "../utils/logger.js";
 
 export const getJwtSecret = () =>
   process.env.JWT_SECRET || "secreto_constitucion";
@@ -101,10 +102,10 @@ export const verifyRecoveryKey = (req, res, next) => {
   const a = Buffer.from(recoveryKeyHeader);
   const b = Buffer.from(configuredKey);
 
-  console.log(
-    `DEBUG: Verificando llave de recuperación. Longitudes: a=${a.length}, b=${b.length}`,
-  );
-  console.log(recoveryKeyHeader);
+  logger.debug('Verificando llave de recuperación', 'AuthMiddleware.verifyRecoveryKey', {
+    headerLength: a.length,
+    configuredLength: b.length,
+  });
 
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
     return res.status(401).json({

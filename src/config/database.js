@@ -1,5 +1,6 @@
 import oracledb from "oracledb";
 import "dotenv/config";
+import { logger, serializeError } from "../utils/logger.js";
 
 // Configuraciones globales de oracledb
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
@@ -10,9 +11,9 @@ oracledb.fetchAsBuffer = [oracledb.BLOB];
 try {
   oracledb.initOracleClient();
 
-  console.log("📦 Cliente Oracle inicializado en Thick Mode.");
+  logger.info("📦 Cliente Oracle inicializado en Thick Mode.");
 } catch (err) {
-  console.warn(
+  logger.warn(
     "⚠️ No se pudo inicializar en Thick Mode, continuando en Thin Mode:",
     err.message,
   );
@@ -103,7 +104,7 @@ let portalPool = null;
  * Inicializa ambos pools de conexiones a Oracle de manera concurrente.
  */
 export async function initializePool() {
-  console.log("📦 Inicializando pools de conexiones a Oracle...");
+  logger.info("📦 Inicializando pools de conexiones a Oracle...");
   try {
     const [pAcsel, pPortal] = await Promise.all([
       oracledb.createPool({ ...acselDbConfig, poolAlias: "acselPool" }),
@@ -111,17 +112,14 @@ export async function initializePool() {
     ]);
     acselPool = pAcsel;
     portalPool = pPortal;
-    console.log(
+    logger.info(
       `✅ Pool Acsel Core conectado exitosamente a ${acselDbConfig.connectString} (usuario: ${acselDbConfig.user})`,
     );
-    console.log(
+    logger.info(
       `✅ Pool WebPortal conectado exitosamente a ${portalDbConfig.connectString} (usuario: ${portalDbConfig.user})`,
     );
   } catch (err) {
-    console.error(
-      "❌ ERROR CRÍTICO: No se pudieron inicializar los pools de Oracle:",
-      err,
-    );
+    logger.error("Error crítico al inicializar los pools de Oracle", "Database.initializePool", { error: serializeError(err) });
     throw err;
   }
 }
@@ -169,7 +167,7 @@ export async function closePool() {
     closes.push(
       acselPool.close(10).then(() => {
         acselPool = null;
-        console.log("Pool Acsel cerrado.");
+        logger.info("Pool Acsel cerrado.");
       }),
     );
   }
@@ -177,15 +175,15 @@ export async function closePool() {
     closes.push(
       portalPool.close(10).then(() => {
         portalPool = null;
-        console.log("Pool WebPortal cerrado.");
+        logger.info("Pool WebPortal cerrado.");
       }),
     );
   }
   try {
     await Promise.all(closes);
-    console.log("Pools de conexiones a Oracle cerrados exitosamente.");
+    logger.info("Pools de conexiones a Oracle cerrados exitosamente.");
   } catch (err) {
-    console.error("❌ Error al cerrar los pools de conexiones:", err);
+    logger.error("Error al cerrar los pools de conexiones", "Database.closePool", { error: serializeError(err) });
     throw err;
   }
 }

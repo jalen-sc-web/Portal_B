@@ -20,7 +20,7 @@ export const getOwnerDetails = async ({ tipoid, numid, dvid }) => {
     }
 
     if (result.error) {
-        const error = new Error(result.error);
+        const error = new Error(result.error, result.rawError ? { cause: result.rawError } : undefined);
         error.statusCode = 500;
         error.isOperational = true;
         throw error;
@@ -124,7 +124,7 @@ export const getFullRateDetails = async ({ familiares }) => {
     }
 
     if (result.error) {
-        const error = new Error(result.error);
+        const error = new Error(result.error, result.rawError ? { cause: result.rawError } : undefined);
         error.statusCode = 500;
         error.isOperational = true;
         throw error;
@@ -293,7 +293,7 @@ export const saveQuoteDetails = async ({
     }
 
     if (result.error) {
-        const error = new Error(result.error);
+        const error = new Error(result.error, result.rawError ? { cause: result.rawError } : undefined);
         error.statusCode = 500;
         error.isOperational = true;
         throw error;

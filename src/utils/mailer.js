@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { logger, serializeError } from './logger.js';
 
 export const isEmailAllowed = (email, whitelistConfig) => {
   if (!whitelistConfig || typeof whitelistConfig !== 'string' || whitelistConfig.trim() === '' || whitelistConfig.trim() === '*') {
@@ -50,16 +51,11 @@ export const sendPasswordResetEmail = async ({ to, nombre, resetToken }) => {
   const config = getMailerConfig();
   const resetUrl = `${config.frontendUrl}/?reset_token=${encodeURIComponent(resetToken)}`;
 
-  // Log visible en consola para pruebas locales inmediatas
-  console.log('\n============================================================');
-  console.log('📧 [RECUPERACIÓN DE CONTRASEÑA - VÁLIDO POR 72 HORAS]');
-  console.log(`Destinatario : ${to} (${nombre || 'Usuario'})`);
-  console.log(`Enlace       : ${resetUrl}`);
-  console.log('============================================================\n');
+  logger.info('Enlace de recuperación de contraseña generado', 'Mailer.sendPasswordResetEmail', { to, nombre: nombre || 'Usuario', resetUrl });
 
   // 1. Verificación de Lista Blanca (Whitelist) para evitar envíos accidentales
   if (!isEmailAllowed(to, config.whitelist)) {
-    console.warn(`🛑 [EMAIL WHITELIST] Envío bloqueado a '${to}'. La dirección no se encuentra en la lista blanca de destinos autorizados (EMAIL_WHITELIST: '${config.whitelist}').`);
+    logger.warn(`Envío bloqueado por EMAIL_WHITELIST para '${to}'`, 'Mailer.sendPasswordResetEmail', { to, whitelist: config.whitelist });
     return {
       sent: false,
       blocked: true,
@@ -70,7 +66,7 @@ export const sendPasswordResetEmail = async ({ to, nombre, resetToken }) => {
 
   // 2. Si no hay credenciales SMTP configuradas en el .env, no intentar enviar por red
   if (!config.user || !config.pass) {
-    console.warn('⚠️ SMTP_USER o SMTP_PASS no están configurados en el .env. El correo no fue enviado por red, use el enlace de la consola.');
+    logger.warn('SMTP_USER o SMTP_PASS no configurados; correo no enviado por red', 'Mailer.sendPasswordResetEmail', { to });
     return { sent: false, reason: 'SMTP no configurado', resetUrl };
   }
 
@@ -129,10 +125,10 @@ export const sendPasswordResetEmail = async ({ to, nombre, resetToken }) => {
       html: htmlContent
     });
 
-    console.log(`✅ Correo de recuperación enviado con éxito a ${to} (ID: ${info.messageId})`);
+    logger.info(`Correo de recuperación enviado con éxito a ${to}`, 'Mailer.sendPasswordResetEmail', { to, messageId: info.messageId });
     return { sent: true, messageId: info.messageId, resetUrl };
   } catch (err) {
-    console.error('❌ Error al enviar correo SMTP:', err.message);
+    logger.error('Error al enviar correo SMTP', 'Mailer.sendPasswordResetEmail', { to, error: serializeError(err) });
     return { sent: false, error: err.message, resetUrl };
   }
 };

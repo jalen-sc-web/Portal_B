@@ -1,6 +1,7 @@
 import Auth from "../db/Auth.js";
 import Portal from "../db/Portal.js";
 import UserRoles from "../db/UserRoles.js";
+import { logger, serializeError } from "../utils/logger.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import {
@@ -117,7 +118,7 @@ export const loginUser = async ({ username, password }) => {
   try {
     syncedRoleNames = await UserRoles.syncUserRoles(user.CODUSU, roleNamesForSync);
   } catch (syncErr) {
-    console.error("[AuthService] Error al sincronizar roles con ROL_USUARIO:", syncErr.message);
+    logger.error("Error al sincronizar roles con ROL_USUARIO", "AuthService.loginUser", { username: user.CODUSU, error: serializeError(syncErr) });
     syncedRoleNames = roleNamesForSync;
   }
 
@@ -160,7 +161,7 @@ export const loginUser = async ({ username, password }) => {
       codrol: item.CODROL ?? item.codrol
     }));
   } catch (menuErr) {
-    console.error("[AuthService] Error al obtener el menú del rol:", menuErr.message);
+    logger.error("Error al obtener el menú del rol", "AuthService.loginUser", { username: user.CODUSU, error: serializeError(menuErr) });
     menu = [];
   }
 
@@ -604,7 +605,7 @@ export const requestPasswordReset = async (identifier) => {
   const existingCooldown = accountCooldowns.get(cleanIdentifier);
   if (existingCooldown && now < existingCooldown) {
     const remainingSeconds = Math.max(1, Math.ceil((existingCooldown - now) / 1000));
-    console.warn(`🛑 [RateLimiter Cooldown] Solicitud bloqueada para '${cleanIdentifier}'. Cooldown activo por ${remainingSeconds}s.`);
+    logger.warn(`Cooldown activo para '${cleanIdentifier}'`, 'AuthService.requestPasswordReset', { identifier: cleanIdentifier, remainingSeconds });
     const error = new Error(
       `Ya se ha solicitado un enlace recientemente. Por favor espere ${remainingSeconds} segundos antes de solicitar otro envío.`
     );
@@ -644,7 +645,7 @@ export const requestPasswordReset = async (identifier) => {
   const emailCooldown = accountCooldowns.get(recipientEmail);
   if (emailCooldown && now < emailCooldown) {
     const remainingSeconds = Math.max(1, Math.ceil((emailCooldown - now) / 1000));
-    console.warn(`🛑 [RateLimiter Cooldown] Solicitud bloqueada para '${recipientEmail}'. Cooldown activo por ${remainingSeconds}s.`);
+    logger.warn(`Cooldown activo para '${recipientEmail}'`, 'AuthService.requestPasswordReset', { recipientEmail, remainingSeconds });
     const error = new Error(
       `Ya se ha enviado un correo recientemente a esta cuenta. Por favor espere ${remainingSeconds} segundos antes de solicitar otro envío.`
     );

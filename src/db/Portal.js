@@ -1,5 +1,6 @@
 import { getAcselConnection, acselTable, getPortalConnection, portalTable } from "../config/database.js";
 import oracledb from "oracledb";
+import { logger, serializeError } from "../utils/logger.js";
 
 /**
  * Consulta y extrae los roles asociados a una cédula en Acsel invocando la función PL/SQL
@@ -20,24 +21,24 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
   const cleanNumId = String(numid || "").trim();
   const cleanDvid = String(dvid ?? "0").trim();
 
-  console.log(
+  logger.info(
     `[DB fn_devuelve_rol] ---> ENTRADA: tipoid='${cleanTipoid}', numid='${cleanNumId}', dvid='${cleanDvid}'`,
   );
 
   try {
     if (!cleanNumId) {
-      console.warn(
+      logger.warn(
         "[DB fn_devuelve_rol] numid vacío, retornando ['ASEGURADO'] por defecto",
       );
       return ["ASEGURADO"];
     }
 
-    console.log(
+    logger.info(
       "[DB fn_devuelve_rol] 1. Obteniendo conexión de Acsel (JALEN)...",
     );
     connection = await getAcselConnection();
     connectionPortal = await getPortalConnection();
-    console.log("[DB fn_devuelve_rol] 2. Conexión de Acsel establecida.");
+    logger.info("[DB fn_devuelve_rol] 2. Conexión de Acsel establecida.");
 
     // Invocar la función PL/SQL que retorna SYS_REFCURSOR
     const sql = `
@@ -53,7 +54,7 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
       cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
     };
 
-    console.log("[DB fn_devuelve_rol] 3. Ejecutando PL/SQL con binds:", {
+    logger.info("[DB fn_devuelve_rol] 3. Ejecutando PL/SQL con binds:", {
       tipoid: binds.tipoid,
       numid: binds.numid,
       dvid: binds.dvid,
@@ -62,7 +63,7 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
     const result = await connection.execute(sql, binds);
     const cursor = result.outBinds?.cursor;
 
-    console.log(
+    logger.info(
       "[DB fn_devuelve_rol] 4. Ejecución completada. ¿Cursor recibido?:",
       !!cursor,
     );
@@ -74,30 +75,30 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
       while ((row = await cursor.getRow())) {
         count++;
         rawRows.push(row);
-        console.log(
+        logger.info(
           `[DB fn_devuelve_rol] Fila ${count} del cursor:`,
           JSON.stringify(row),
         );
         if (count > 500) {
-          console.warn(
+          logger.warn(
             "[DB fn_devuelve_rol] Límite de seguridad alcanzado al leer cursor de roles (500)",
           );
           break;
         }
       }
-      console.log(
+      logger.info(
         `[DB fn_devuelve_rol] 5. Total filas leídas del cursor: ${count}`,
       );
       try {
         await cursor.close();
       } catch (closeCursorErr) {
-        console.error(
+        logger.error(
           "[DB fn_devuelve_rol] Error al cerrar cursor de roles:",
           closeCursorErr,
         );
       }
     } else {
-      console.warn(
+      logger.warn(
         "[DB fn_devuelve_rol] El outBind cursor es nulo o indefinido.",
       );
     }
@@ -125,7 +126,7 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
 
     // Si el set está vacío, asigna al menos el rol base ASEGURADO
     if (rolesSet.size === 0) {
-      console.log(
+      logger.info(
         "[DB fn_devuelve_rol] Sin roles devueltos en cursor, asignando ['ASEGURADO']",
       );
       rolesSet.add("ASEGURADO");
@@ -164,21 +165,21 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
       nombre: String(row.NOMBRE).trim().toUpperCase()
     }));
 
-    console.log(`[DB fn_devuelve_rol] <--- SALIDA FINAL ROLES:`, finalRoles);
+    logger.info(`[DB fn_devuelve_rol] <--- SALIDA FINAL ROLES:`, finalRoles);
     return finalRoles;
   } catch (error) {
-    console.error("[DB fn_devuelve_rol] ❌ ERROR en ejecución:", error);
+    logger.error("[DB fn_devuelve_rol] ❌ ERROR en ejecución:", error);
     // Fallback de contingencia: no interrumpir el login si la función falla o no encuentra pólizas
     return ["ASEGURADO"];
   } finally {
     if (connection) {
       try {
         await connection.close();
-        console.log(
+        logger.info(
           "[DB fn_devuelve_rol] Conexión de Acsel cerrada correctamente.",
         );
       } catch (closeErr) {
-        console.error(
+        logger.error(
           "[DB fn_devuelve_rol] Error al cerrar conexión de Acsel:",
           closeErr,
         );
@@ -253,10 +254,11 @@ const getOwner = async (data) => {
       message: "Titular encontrado exitosamente.",
     };
   } catch (error) {
-    console.error("Error al obtener titular de Acsel:", error);
+    logger.error("Error al obtener titular de Acsel:", error);
     return {
       status: false,
       error: "Error en la base de datos al consultar titular",
+      rawError: error,
       message: "Error al obtener titular",
     };
   } finally {
@@ -264,7 +266,7 @@ const getOwner = async (data) => {
       try {
         await connection.close();
       } catch (closeErr) {
-        console.error(
+        logger.error(
           "Error al cerrar la conexión a Oracle en getOwner:",
           closeErr,
         );
@@ -348,18 +350,21 @@ const getFullRate = async (data) => {
     };
 
   } catch (error) {
-    console.error("Error al obtener tarifas completas e individuales:", error);
+    logger.error("Error al obtener tarifas completas e individuales", "PortalDB.getFullRate", {
+      error: serializeError(error),
+    });
     return {
       status: false,
       error: "Error en la base de datos al consultar tarifas",
       message: "Error al obtener tarifas",
+      rawError: error,
     };
   } finally {
     if (connection) {
       try {
         await connection.close();
       } catch (closeErr) {
-        console.error(
+        logger.error(
           "Error al cerrar la conexión a Oracle en getFullRate:",
           closeErr,
         );
@@ -521,13 +526,14 @@ export const saveQuote = async (data) => {
       try {
         await connection.rollback();
       } catch (rbErr) {
-        console.error("ERROR AL REALIZAR ROLLBACK EN SAVEQUOTE:", rbErr);
+        logger.error("ERROR AL REALIZAR ROLLBACK EN SAVEQUOTE:", rbErr);
       }
     }
-    console.error("ERROR AL GUARDAR LA COTIZACIÓN EN ORACLE:", error);
+    logger.error("ERROR AL GUARDAR LA COTIZACIÓN EN ORACLE:", error);
     return {
       status: false,
       error: "ERROR EN LA BASE DE DATOS AL REGISTRAR LA COTIZACIÓN",
+      rawError: error,
       message: error.message || "ERROR AL PROCESAR LA COTIZACIÓN"
     };
   } finally {
@@ -535,7 +541,7 @@ export const saveQuote = async (data) => {
       try {
         await connection.close();
       } catch (closeErr) {
-        console.error("ERROR AL CERRAR LA CONEXIÓN A ORACLE EN SAVEQUOTE:", closeErr);
+        logger.error("ERROR AL CERRAR LA CONEXIÓN A ORACLE EN SAVEQUOTE:", closeErr);
       }
     }
   }

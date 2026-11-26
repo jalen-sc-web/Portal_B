@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger.js';
+
 /**
  * Middleware de Rate Limiting en memoria para Express con algoritmo de Ventana Deslizante (Sliding Window).
  * Previene ataques de DoS, fuerza bruta y saturación de servicios externos (ej. SMTP).
@@ -51,7 +53,7 @@ export const createRateLimiter = ({
             res.set('X-RateLimit-Remaining', '0');
             res.set('X-RateLimit-Reset', String(Math.ceil((oldestTimestamp + windowMs) / 1000)));
 
-            console.warn(`🛑 [RateLimiter IP] Bloqueada solicitud desde '${key}'. Límite de ${max} peticiones en ${windowMs / 1000}s excedido.`);
+            logger.warn(`Solicitud bloqueada por RateLimiter IP para '${key}'`, 'RateLimiter', { key, max, windowMs });
 
             return res.status(429).json({
                 status: false,

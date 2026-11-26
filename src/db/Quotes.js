@@ -1,4 +1,5 @@
 import { getPortalConnection, portalTable } from '../config/database.js';
+import { logger, serializeError } from '../utils/logger.js';
 import oracledb from 'oracledb';
 
 /**
@@ -110,7 +111,7 @@ export const getQuotesByInsured = async ({ username, email, numid, search, statu
     // pero se requiere visualización, retornamos lo encontrado.
     return rows.map(formatQuoteRow);
   } catch (error) {
-    console.error('[Quotes DB] Error en getQuotesByInsured:', error);
+    logger.error('Error en getQuotesByInsured', 'QuotesDB.getQuotesByInsured', { error: serializeError(error) });
     throw error;
   } finally {
     if (connection) {
@@ -201,7 +202,7 @@ export const getQuotesByIntermediary = async ({ codinter, username, search, stat
     const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
     return (result.rows || []).map(formatQuoteRow);
   } catch (error) {
-    console.error('[Quotes DB] Error en getQuotesByIntermediary:', error);
+    logger.error('Error en getQuotesByIntermediary', 'QuotesDB.getQuotesByIntermediary', { error: serializeError(error) });
     throw error;
   } finally {
     if (connection) {
@@ -311,7 +312,7 @@ export const getQuoteDetail = async (codcoti) => {
       }))
     };
   } catch (error) {
-    console.error('[Quotes DB] Error en getQuoteDetail:', error);
+    logger.error('Error en getQuoteDetail', 'QuotesDB.getQuoteDetail', { error: serializeError(error) });
     throw error;
   } finally {
     if (connection) {
