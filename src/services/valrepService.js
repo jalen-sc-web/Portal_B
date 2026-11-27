@@ -134,13 +134,13 @@ export const getLvals = async (tipolval) => {
     return result.data;
 };
 
-export const getParents = async () => {
-    const cacheKey = `catalog_parents_PARENT`;
+export const getParents = async (codprod) => {
+    const cleanProd = codprod ? String(codprod).trim() : '';
+    const cacheKey = cleanProd ? `catalog_parents_${cleanProd}` : 'catalog_parents_PARENT';
     const cached = getFromCache(cacheKey);
     if (cached) return cached;
 
-    // Puedes pasar directamente 'PARENT' o invocar la capa de datos reutilizando la consulta de lval
-    const result = await Valrep.getParent({ tipolval: 'PARENT' });
+    const result = await Valrep.getParent({ tipolval: 'PARENT', codprod: cleanProd || undefined });
     
     if (result.error) {
         const err = new Error(result.error);

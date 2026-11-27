@@ -1,4 +1,9 @@
-import { getAcselConnection, acselTable, getPortalConnection, portalTable } from "../config/database.js";
+import {
+  getAcselConnection,
+  acselTable,
+  getPortalConnection,
+  portalTable,
+} from "../config/database.js";
 import oracledb from "oracledb";
 import { logger, serializeError } from "../utils/logger.js";
 
@@ -138,7 +143,9 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
     const rolesTable = portalTable("ROLES");
     const roleNamesArray = Array.from(rolesSet);
 
-    const placeholders = roleNamesArray.map((_, index) => `:rName${index}`).join(", ");
+    const placeholders = roleNamesArray
+      .map((_, index) => `:rName${index}`)
+      .join(", ");
     const roleBinds = {};
     roleNamesArray.forEach((name, index) => {
       roleBinds[`rName${index}`] = name;
@@ -151,18 +158,16 @@ const getRolesByCedula = async ({ tipoid = "V", numid, dvid = "0" }) => {
         AND stsrol = 'ACT' -- O el estatus que maneje tu tabla de roles si aplica
     `;
 
-    const rolesResult = await connectionPortal.execute(
-      rolesQuery,
-      roleBinds,
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+    const rolesResult = await connectionPortal.execute(rolesQuery, roleBinds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    });
 
     const dbRoles = rolesResult.rows || [];
 
     // Mapear los resultados obtenidos de la BD con codrol y nombre
-    const finalRoles = dbRoles.map(row => ({
+    const finalRoles = dbRoles.map((row) => ({
       codrol: Number(row.CODROL),
-      nombre: String(row.NOMBRE).trim().toUpperCase()
+      nombre: String(row.NOMBRE).trim().toUpperCase(),
     }));
 
     logger.info(`[DB fn_devuelve_rol] <--- SALIDA FINAL ROLES:`, finalRoles);
@@ -292,18 +297,17 @@ const getFullRate = async (data) => {
        END;`,
       {
         familiares: { val: familiares, type: oracledb.STRING },
-        cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT }
+        cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
       },
       {
-        outFormat: oracledb.OUT_FORMAT_OBJECT
-      }
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      },
     );
 
     const resultSetCompleta = resultCompleta.outBinds.cursor;
     // getRows() permite traer todas las filas de golpe de forma más eficiente (puedes pasarle un límite si son muchas, ej: getRows(100))
     const rowsCompleta = await resultSetCompleta.getRows();
     await resultSetCompleta.close();
-
 
     // ==========================================
     // 2. SEGUNDO CURSOR: OBTENER_TARIFA_INDIVIDUAL
@@ -314,17 +318,16 @@ const getFullRate = async (data) => {
        END;`,
       {
         familiares: { val: familiares, type: oracledb.STRING },
-        cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT }
+        cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
       },
       {
-        outFormat: oracledb.OUT_FORMAT_OBJECT
-      }
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      },
     );
 
     const resultSetIndividual = resultIndividual.outBinds.cursor;
     const rowsIndividual = await resultSetIndividual.getRows();
     await resultSetIndividual.close();
-
 
     // ==========================================
     // VALIDACIONES Y RETORNO
@@ -333,10 +336,10 @@ const getFullRate = async (data) => {
     const hasDataIndividual = rowsIndividual && rowsIndividual.length > 0;
 
     if (!hasDataCompleta && !hasDataIndividual) {
-      return { 
-        status: false, 
-        data: { completa: [], individual: [] }, 
-        message: "No se encontraron tarifas disponibles." 
+      return {
+        status: false,
+        data: { completa: [], individual: [] },
+        message: "No se encontraron tarifas disponibles.",
       };
     }
 
@@ -344,15 +347,18 @@ const getFullRate = async (data) => {
       status: true,
       data: {
         completa: rowsCompleta,
-        individual: rowsIndividual
+        individual: rowsIndividual,
       },
       message: "Tarifas obtenidas exitosamente.",
     };
-
   } catch (error) {
-    logger.error("Error al obtener tarifas completas e individuales", "PortalDB.getFullRate", {
-      error: serializeError(error),
-    });
+    logger.error(
+      "Error al obtener tarifas completas e individuales",
+      "PortalDB.getFullRate",
+      {
+        error: serializeError(error),
+      },
+    );
     return {
       status: false,
       error: "Error en la base de datos al consultar tarifas",
@@ -373,37 +379,164 @@ const getFullRate = async (data) => {
   }
 };
 
-const saveQuote = async (data) => {
+const getFuneralRate = async ({ indTipoPlan, familiares }) => {
+  let connection;
 
+  try {
+    connection = await getAcselConnection();
+
+    const query = `
+      WITH fam AS (
+        SELECT ROWNUM AS ID_FAMILIAR,
+               REGEXP_SUBSTR(item, '[^:]+', 1, 1) AS COD_PARENT,
+               TO_DATE(REGEXP_SUBSTR(item, '[^:]+', 1, 2), 'YYYY-MM-DD') AS FEC_NAC
+        FROM (
+          SELECT REGEXP_SUBSTR(:familiares, '[^,]+', 1, LEVEL) AS item
+          FROM DUAL
+          CONNECT BY REGEXP_SUBSTR(:familiares, '[^,]+', 1, LEVEL) IS NOT NULL
+        )
+      )
+      SELECT pp.CODPLAN,
+             pp.REVPLAN,
+             pp.INDTIPOPLAN,
+             NVL(pp.DESCPLANPROD, 'Plan Funerario') AS DESCPLAN,
+             cp.CODCOBERT,
+             NVL(cr.DESCCOBERT, 'GASTOS FUNERARIOS') AS DESCCOBERT,
+             NVL(cp.MTODEDMIN, 0) AS DEDUCIBLE,
+             f.ID_FAMILIAR,
+             f.COD_PARENT AS CODPARENT,
+             PR.CALC_EDAD(SYSDATE, f.FEC_NAC, NVL(rpp.INDEDADACT, 'N')) AS EDADFAMILIAR,
+             pr.PRIMACOBERT,
+             pr.SUMAASEG,
+             pr.EDADINI,
+             pr.EDADFIN,
+             pr.MAXPARENT
+      FROM ${acselTable("PLAN_PROD")} pp
+      JOIN ${acselTable("COBERT_PLAN_PROD")} cp
+        ON cp.CODPROD = pp.CODPROD
+       AND cp.CODPLAN = pp.CODPLAN
+       AND cp.REVPLAN = pp.REVPLAN
+      LEFT JOIN ${acselTable("COBERT_RAMO")} cr
+        ON cr.CODRAMO = cp.CODRAMOPLAN
+       AND cr.CODCOBERT = cp.CODCOBERT
+      LEFT JOIN ${acselTable("RAMO_PLAN_PROD")} rpp
+        ON rpp.CODPROD = pp.CODPROD
+       AND rpp.CODPLAN = pp.CODPLAN
+       AND rpp.REVPLAN = pp.REVPLAN
+       AND rpp.CODRAMOPLAN = cp.CODRAMOPLAN
+      CROSS JOIN fam f
+      LEFT JOIN ${acselTable("PRIMA_COBERT_PROD")} pr
+        ON pr.CODPROD = pp.CODPROD
+       AND pr.CODPLAN = pp.CODPLAN
+       AND pr.REVPLAN = pp.REVPLAN
+       AND pr.CODRAMOPLAN = cp.CODRAMOPLAN
+       AND pr.CODCOBERT = cp.CODCOBERT
+       AND pr.CODPARENT = f.COD_PARENT
+       AND PR.CALC_EDAD(SYSDATE, f.FEC_NAC, NVL(rpp.INDEDADACT, 'N')) BETWEEN pr.EDADINI AND pr.EDADFIN
+      WHERE pp.CODPROD = '1010'
+        AND pp.STSPLAN = 'ACT'
+        AND pp.FECFINVIG > SYSDATE
+        AND pp.INDCOTIWEB = 'S'
+        AND pp.INDTIPOPLAN = :indTipoPlan
+        AND cp.INDCOBERTOBLIG = 'S'
+        AND cp.STSCOBERT = 'ACT'
+      ORDER BY pp.CODPLAN, pp.REVPLAN, cp.CODCOBERT, f.ID_FAMILIAR
+    `;
+
+    const result = await connection.execute(
+      query,
+      { indTipoPlan, familiares },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+
+    return {
+      status: true,
+      data: result.rows || [],
+      message: "Tarifas funerarias obtenidas exitosamente.",
+    };
+  } catch (error) {
+    logger.error(
+      "Error al obtener tarifas funerarias",
+      "PortalDB.getFuneralRate",
+      {
+        error: serializeError(error),
+      },
+    );
+    return {
+      status: false,
+      error: "Error en la base de datos al consultar tarifas funerarias",
+      rawError: error,
+      message: "Error al obtener tarifas funerarias",
+    };
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (closeErr) {
+        logger.error(
+          "Error al cerrar la conexión a Oracle en getFuneralRate:",
+          closeErr,
+        );
+      }
+    }
+  }
+};
+
+export const saveQuote = async (data) => {
   if (!data) {
-    return { status: false, message: "EL PAYLOAD DE LA COTIZACIÓN ESTÁ VACÍO." };
+    return {
+      status: false,
+      message: "EL PAYLOAD DE LA COTIZACIÓN ESTÁ VACÍO.",
+    };
   }
 
   const { codProd, prima, hcmPlan, asegurados, coberturas } = data;
 
-  const nombreAseg = data.nombreAseg ? String(data.nombreAseg).toUpperCase() : '';
-  const codUsuCrea = data.codUsuCrea ? String(data.codUsuCrea).toUpperCase() : 'PORTALASEG';
+  const nombreAseg = data.nombreAseg
+    ? String(data.nombreAseg).toUpperCase()
+    : "";
+  const codUsuCrea = data.codUsuCrea
+    ? String(data.codUsuCrea).toUpperCase()
+    : "PORTALASEG";
 
   if (!codProd) {
-    return { status: false, message: "EL CÓDIGO DE PRODUCTO (CODPROD) ES OBLIGATORIO." };
+    return {
+      status: false,
+      message: "EL CÓDIGO DE PRODUCTO (CODPROD) ES OBLIGATORIO.",
+    };
   }
   if (!nombreAseg || nombreAseg.trim() === "") {
-    return { status: false, message: "EL NOMBRE DEL ASEGURADO TITULAR ES OBLIGATORIO." };
+    return {
+      status: false,
+      message: "EL NOMBRE DEL ASEGURADO TITULAR ES OBLIGATORIO.",
+    };
   }
   if (prima === undefined || prima === null || isNaN(prima)) {
-    return { status: false, message: "LA PRIMA TOTAL DE LA COTIZACIÓN ES INVÁLIDA O REQUERIDA." };
+    return {
+      status: false,
+      message: "LA PRIMA TOTAL DE LA COTIZACIÓN ES INVÁLIDA O REQUERIDA.",
+    };
   }
 
   if (!hcmPlan || !hcmPlan.codPlan) {
-    return { status: false, message: "LOS DATOS DEL PLAN HCM (HCMPLAN Y SU CODPLAN) SON OBLIGATORIOS." };
+    return {
+      status: false,
+      message: "LOS DATOS DEL PLAN (CODPLAN) SON OBLIGATORIOS.",
+    };
   }
 
   if (!Array.isArray(asegurados) || asegurados.length === 0) {
-    return { status: false, message: "DEBE INCLUIR AL MENOS UN ASEGURADO EN LA COTIZACIÓN." };
+    return {
+      status: false,
+      message: "DEBE INCLUIR AL MENOS UN ASEGURADO EN LA COTIZACIÓN.",
+    };
   }
 
   if (!Array.isArray(coberturas) || coberturas.length === 0) {
-    return { status: false, message: "LA COTIZACIÓN DEBE CONTENER EL DESGLOSE DE COBERTURAS." };
+    return {
+      status: false,
+      message: "LA COTIZACIÓN DEBE CONTENER EL DESGLOSE DE COBERTURAS.",
+    };
   }
 
   let connection;
@@ -429,13 +562,16 @@ const saveQuote = async (data) => {
       email: data.email || null,
       prima,
       sumaAseg: data.sumaAseg || null,
-      codInter: data.codInter || '000001',
-      codOfiEmi: data.codOfiEmi || '100101',
+      codInter: data.codInter || "000001",
+      codOfiEmi: data.codOfiEmi || "100101",
       codUsuCrea,
-      codcoti: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
+      codcoti: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
     };
 
-    const cotizacionRes = await connection.execute(insertCotizacionQuery, bindVarsCotizacion);
+    const cotizacionRes = await connection.execute(
+      insertCotizacionQuery,
+      bindVarsCotizacion,
+    );
     const codCoti = cotizacionRes.outBinds.codcoti[0];
 
     // 3. ACTUALIZAR EL CODCOTI_REF COMBINANDO EL CODPROD + EL CODCOTI RECIÉN GENERADO
@@ -461,12 +597,14 @@ const saveQuote = async (data) => {
       codCoti,
       codProd: hcmPlan.codProd || codProd,
       codPlan: hcmPlan.codPlan,
-      revPlan: hcmPlan.revPlan || '01',
-      nombrePlan: hcmPlan.nombrePlan ? String(hcmPlan.nombrePlan).toUpperCase() : null,
+      revPlan: hcmPlan.revPlan || "01",
+      nombrePlan: hcmPlan.nombrePlan
+        ? String(hcmPlan.nombrePlan).toUpperCase()
+        : null,
       prima: hcmPlan.prima,
       sumaAseg: hcmPlan.sumaAseg,
       deducible: hcmPlan.deducible !== undefined ? hcmPlan.deducible : null,
-      codUsuCrea
+      codUsuCrea,
     });
 
     // 5. INSERTAR ASEGURADOS / FAMILIARES MÚLTIPLES EN WEBPORTAL.COTIZACION_HCM_ASEG (Usando FECNAC)
@@ -479,12 +617,17 @@ const saveQuote = async (data) => {
     `;
 
     for (const fam of asegurados) {
+      const rawFec = fam.fecnac || fam.fechanac;
+      const fecnac = rawFec
+        ? String(rawFec).slice(0, 10)
+        : `${new Date().getFullYear() - Number(fam.edad || 0)}-01-01`;
+
       await connection.execute(insertAsegQuery, {
         codCoti,
         codParent: fam.codParent,
-        fecnac: fam.fechanac, // Asegúrate de que llegue en formato 'YYYY-MM-DD'
+        fecnac,
         prima: fam.prima !== undefined ? fam.prima : 0,
-        codUsuCrea
+        codUsuCrea,
       });
     }
 
@@ -501,11 +644,22 @@ const saveQuote = async (data) => {
       await connection.execute(insertCobQuery, {
         codCoti,
         codCobert: cob.codCobert,
-        descCobert: cob.descCobert ? String(cob.descCobert).toUpperCase() : null,
-        sumaAsegCob: (cob.sumaAsegCob !== undefined && cob.sumaAsegCob !== null) ? cob.sumaAsegCob : null,
-        deducible: (cob.deducible !== undefined && cob.deducible !== null) ? cob.deducible : null,
-        primaCob: (cob.primaCob !== undefined && cob.primaCob !== null) ? cob.primaCob : null,
-        codUsuCrea
+        descCobert: cob.descCobert
+          ? String(cob.descCobert).toUpperCase()
+          : null,
+        sumaAsegCob:
+          cob.sumaAsegCob !== undefined && cob.sumaAsegCob !== null
+            ? cob.sumaAsegCob
+            : null,
+        deducible:
+          cob.deducible !== undefined && cob.deducible !== null
+            ? cob.deducible
+            : null,
+        primaCob:
+          cob.primaCob !== undefined && cob.primaCob !== null
+            ? cob.primaCob
+            : null,
+        codUsuCrea,
       });
     }
 
@@ -516,11 +670,10 @@ const saveQuote = async (data) => {
       status: true,
       data: {
         codCoti,
-        codCotiRef
+        codCotiRef,
       },
-      message: "COTIZACIÓN GUARDADA EXITOSAMENTE EN EL ESQUEMA WEBPORTAL."
+      message: "COTIZACIÓN GUARDADA EXITOSAMENTE EN EL ESQUEMA WEBPORTAL.",
     };
-
   } catch (error) {
     if (connection) {
       try {
@@ -534,194 +687,217 @@ const saveQuote = async (data) => {
       status: false,
       error: "ERROR EN LA BASE DE DATOS AL REGISTRAR LA COTIZACIÓN",
       rawError: error,
-      message: error.message || "ERROR AL PROCESAR LA COTIZACIÓN"
+      message: error.message || "ERROR AL PROCESAR LA COTIZACIÓN",
     };
   } finally {
     if (connection) {
       try {
         await connection.close();
       } catch (closeErr) {
-        logger.error("ERROR AL CERRAR LA CONEXIÓN A ORACLE EN SAVEQUOTE:", closeErr);
+        logger.error(
+          "ERROR AL CERRAR LA CONEXIÓN A ORACLE EN SAVEQUOTE:",
+          closeErr,
+        );
       }
     }
   }
 };
 
 const getQuoteById = async ({ codCoti }) => {
-    if (!codCoti || isNaN(Number(codCoti))) {
-        const error = new Error("El código de cotización (codCoti) es requerido y debe ser numérico.");
-        error.statusCode = 400;
-        error.isOperational = true;
-        throw error;
-    }
+  if (!codCoti || isNaN(Number(codCoti))) {
+    const error = new Error(
+      "El código de cotización (codCoti) es requerido y debe ser numérico.",
+    );
+    error.statusCode = 400;
+    error.isOperational = true;
+    throw error;
+  }
 
-    let connection;
-    
-    try {
-        connection = await getPortalConnection();
+  let connection;
 
-        const queryCotizacion = `
+  try {
+    connection = await getPortalConnection();
+
+    const queryCotizacion = `
             SELECT CODCOTI, CODCOTI_REF, CODPROD, NOMBRE_ASEG, TELEFONO, EMAIL, PRIMA, SUMA_ASEG
             FROM WEBPORTAL.COTIZACIONES
             WHERE CODCOTI = :codCoti
         `;
-        const cotiRes = await connection.execute(queryCotizacion, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    const cotiRes = await connection.execute(
+      queryCotizacion,
+      { codCoti: Number(codCoti) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
 
-        if (!cotiRes.rows || cotiRes.rows.length === 0) {
-            return {
-                found: false,
-                data: null,
-                message: "No se encontró la cotización especificada para el proceso de emisión."
-            };
-        }
+    if (!cotiRes.rows || cotiRes.rows.length === 0) {
+      return {
+        found: false,
+        data: null,
+        message:
+          "No se encontró la cotización especificada para el proceso de emisión.",
+      };
+    }
 
-        const coti = cotiRes.rows[0];
+    const coti = cotiRes.rows[0];
 
-        const queryHcm = `
+    const queryHcm = `
             SELECT CODPROD, CODPLAN, REVPLAN, NOMBREPLAN, PRIMA, SUMA_ASEG, DEDUCIBLE
             FROM WEBPORTAL.COTIZACION_HCM
             WHERE CODCOTI = :codCoti
         `;
-        const hcmRes = await connection.execute(queryHcm, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        const hcmPlan = hcmRes.rows[0] || {};
+    const hcmRes = await connection.execute(
+      queryHcm,
+      { codCoti: Number(codCoti) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const hcmPlan = hcmRes.rows[0] || {};
 
-        const queryAseg = `
+    const queryAseg = `
             SELECT CODASEG, CODPARENT, FECNAC, PRIMA
             FROM WEBPORTAL.COTIZACION_HCM_ASEG
             WHERE CODCOTI = :codCoti
         `;
-        const asegRes = await connection.execute(queryAseg, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        const aseguradosRows = asegRes.rows || [];
+    const asegRes = await connection.execute(
+      queryAseg,
+      { codCoti: Number(codCoti) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const aseguradosRows = asegRes.rows || [];
 
-        const formatearFechaYMD = (fechaNac) => {
-            if (!fechaNac) return '';
-            const d = new Date(fechaNac);
-            if (isNaN(d.getTime())) return '';
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        };
+    const formatearFechaYMD = (fechaNac) => {
+      if (!fechaNac) return "";
+      const d = new Date(fechaNac);
+      if (isNaN(d.getTime())) return "";
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
 
-        let connectionAcsel;
-        const aseguradosMapeados = [];
+    let connectionAcsel;
+    const aseguradosMapeados = [];
 
-        try {
-            connectionAcsel = await getAcselConnection();
+    try {
+      connectionAcsel = await getAcselConnection();
 
-            for (const fam of aseguradosRows) {
-                let descParentDesc = fam.CODPARENT === '0001' ? 'TITULAR' : 'FAMILIAR';
+      for (const fam of aseguradosRows) {
+        let descParentDesc = fam.CODPARENT === "0001" ? "TITULAR" : "FAMILIAR";
 
-                if (fam.CODPARENT) {
-                    const queryAcsel = `
+        if (fam.CODPARENT) {
+          const queryAcsel = `
                         SELECT DESCRIP 
                         FROM ${acselTable('"LVAL"')} 
                         WHERE TIPOLVAL = 'PARENT' 
                           AND CODLVAL = :codParent
                     `;
-                    const acselRes = await connectionAcsel.execute(
-                        queryAcsel, 
-                        { codParent: fam.CODPARENT }, 
-                        { outFormat: oracledb.OUT_FORMAT_OBJECT }
-                    );
+          const acselRes = await connectionAcsel.execute(
+            queryAcsel,
+            { codParent: fam.CODPARENT },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT },
+          );
 
-                    if (acselRes.rows && acselRes.rows.length > 0) {
-                        descParentDesc = acselRes.rows[0].DESCRIP;
-                    }
-                }
-
-                const fechaNacStr = formatearFechaYMD(fam.FECNAC);
-
-                aseguradosMapeados.push({
-                    codAseg: fam.CODASEG,
-                    codParent: fam.CODPARENT,
-                    descParent: descParentDesc,
-                    fecnac: fechaNacStr,
-                    prima: Number(fam.PRIMA || 0)
-                });
-            }
-        } catch (acselErr) {
-            aseguradosRows.forEach((fam, index) => {
-                const fechaNacStr = formatearFechaYMD(fam.FECNAC);
-
-                aseguradosMapeados.push({
-                    codAseg: fam.CODASEG,
-                    codParent: fam.CODPARENT,
-                    descParent: index === 0 ? 'TITULAR' : 'FAMILIAR',
-                    fecnac: fechaNacStr,
-                    prima: Number(fam.PRIMA || 0)
-                });
-            });
-        } finally {
-            if (connectionAcsel) {
-                try {
-                    await connectionAcsel.close();
-                } catch (closeErr) {}
-            }
+          if (acselRes.rows && acselRes.rows.length > 0) {
+            descParentDesc = acselRes.rows[0].DESCRIP;
+          }
         }
 
-        const queryCob = `
+        const fechaNacStr = formatearFechaYMD(fam.FECNAC);
+
+        aseguradosMapeados.push({
+          codAseg: fam.CODASEG,
+          codParent: fam.CODPARENT,
+          descParent: descParentDesc,
+          fecnac: fechaNacStr,
+          prima: Number(fam.PRIMA || 0),
+        });
+      }
+    } catch (acselErr) {
+      aseguradosRows.forEach((fam, index) => {
+        const fechaNacStr = formatearFechaYMD(fam.FECNAC);
+
+        aseguradosMapeados.push({
+          codAseg: fam.CODASEG,
+          codParent: fam.CODPARENT,
+          descParent: index === 0 ? "TITULAR" : "FAMILIAR",
+          fecnac: fechaNacStr,
+          prima: Number(fam.PRIMA || 0),
+        });
+      });
+    } finally {
+      if (connectionAcsel) {
+        try {
+          await connectionAcsel.close();
+        } catch (closeErr) {}
+      }
+    }
+
+    const queryCob = `
             SELECT CODCOBERT, DESCCOBERT, SUMAASEG_COB, DEDUCIBLE, PRIMA_COB
             FROM WEBPORTAL.COTIZACION_HCM_COB
             WHERE CODCOTI = :codCoti
         `;
-        const cobRes = await connection.execute(queryCob, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    const cobRes = await connection.execute(
+      queryCob,
+      { codCoti: Number(codCoti) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
 
-        const quoteData = {
-            codCoti: Number(coti.CODCOTI),
-            codCotiRef: coti.CODCOTI_REF,
-            codProd: coti.CODPROD,
-            nombreAseg: coti.NOMBRE_ASEG,
-            telefono: coti.TELEFONO,
-            email: coti.EMAIL,
-            prima: Number(coti.PRIMA || 0),
-            sumaAseg: Number(coti.SUMA_ASEG || 0),
+    const quoteData = {
+      codCoti: Number(coti.CODCOTI),
+      codCotiRef: coti.CODCOTI_REF,
+      codProd: coti.CODPROD,
+      nombreAseg: coti.NOMBRE_ASEG,
+      telefono: coti.TELEFONO,
+      email: coti.EMAIL,
+      prima: Number(coti.PRIMA || 0),
+      sumaAseg: Number(coti.SUMA_ASEG || 0),
 
-            hcmPlan: {
-                codProd: hcmPlan.CODPROD || coti.CODPROD,
-                codPlan: hcmPlan.CODPLAN,
-                revplan: hcmPlan.REVPLAN,
-                nombrePlan: hcmPlan.NOMBREPLAN,
-                prima: Number(hcmPlan.PRIMA || coti.PRIMA || 0),
-                sumaAseg: Number(hcmPlan.SUMA_ASEG || coti.SUMA_ASEG || 0),
-                deducible: Number(hcmPlan.DEDUCIBLE || 0)
-            },
+      hcmPlan: {
+        codProd: hcmPlan.CODPROD || coti.CODPROD,
+        codPlan: hcmPlan.CODPLAN,
+        revplan: hcmPlan.REVPLAN,
+        nombrePlan: hcmPlan.NOMBREPLAN,
+        prima: Number(hcmPlan.PRIMA || coti.PRIMA || 0),
+        sumaAseg: Number(hcmPlan.SUMA_ASEG || coti.SUMA_ASEG || 0),
+        deducible: Number(hcmPlan.DEDUCIBLE || 0),
+      },
 
-            asegurados: aseguradosMapeados.map(fam => ({
-                codAseg: fam.codAseg,
-                codParent: fam.codParent,
-                descParent: fam.descParent,
-                fecnac: fam.fecnac,
-                prima: fam.prima
-            })),
+      asegurados: aseguradosMapeados.map((fam) => ({
+        codAseg: fam.codAseg,
+        codParent: fam.codParent,
+        descParent: fam.descParent,
+        fecnac: fam.fecnac,
+        prima: fam.prima,
+      })),
 
-            coberturas: cobRes.rows.map(cob => ({
-                codCobert: cob.CODCOBERT,
-                descCobert: cob.DESCCOBERT,
-                sumaAsegCob: Number(cob.SUMAASEG_COB || 0),
-                deducible: Number(cob.DEDUCIBLE || 0),
-                primaCob: Number(cob.PRIMA_COB || 0)
-            }))
-        };
+      coberturas: cobRes.rows.map((cob) => ({
+        codCobert: cob.CODCOBERT,
+        descCobert: cob.DESCCOBERT,
+        sumaAsegCob: Number(cob.SUMAASEG_COB || 0),
+        deducible: Number(cob.DEDUCIBLE || 0),
+        primaCob: Number(cob.PRIMA_COB || 0),
+      })),
+    };
 
-        return {
-            found: true,
-            data: quoteData,
-            message: "COTIZACIÓN RECUPERADA EXITOSAMENTE PARA EMISIÓN."
-        };
-
-    } catch (error) {
-        const err = new Error("ERROR EN LA BASE DE DATOS AL CONSULTAR LA COTIZACIÓN");
-        err.statusCode = 500;
-        err.isOperational = true;
-        throw err;
-    } finally {
-        if (connection) {
-            try {
-                await connection.close();
-            } catch (closeErr) {}
-        }
+    return {
+      found: true,
+      data: quoteData,
+      message: "COTIZACIÓN RECUPERADA EXITOSAMENTE PARA EMISIÓN.",
+    };
+  } catch (error) {
+    const err = new Error(
+      "ERROR EN LA BASE DE DATOS AL CONSULTAR LA COTIZACIÓN",
+    );
+    err.statusCode = 500;
+    err.isOperational = true;
+    throw err;
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (closeErr) {}
     }
+  }
 };
 
 const getParent = async () => {
@@ -732,13 +908,17 @@ const getParent = async () => {
           AND CODLVAL IN ('0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008')
         ORDER BY CODLVAL
     `;
-  
+
   let connection;
   try {
     connection = await getAcselConnection();
-    const result = await connection.execute(query, {}, {
-      outFormat: oracledb.OUT_FORMAT_OBJECT,
-    });
+    const result = await connection.execute(
+      query,
+      {},
+      {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      },
+    );
     return { data: result.rows || [] };
   } catch (error) {
     console.error("Error en consulta catálogo Acsel (getParent):", error);
@@ -758,6 +938,6 @@ export default {
   getOwner,
   getRolesByCedula,
   getFullRate,
+  getFuneralRate,
   saveQuote,
-  getQuoteById
 };

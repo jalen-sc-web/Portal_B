@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 vi.mock('../../src/services/portalService.js', () => ({
   default: {
     getOwnerDetails: vi.fn(),
+    getFullRateDetails: vi.fn(),
+    saveQuoteDetails: vi.fn()
   }
 }));
 
@@ -107,5 +109,58 @@ describe('Portal Routes - Rutas de Consulta de Titulares Acsel (HTTP)', () => {
     expect(res.status).toBe(400);
     expect(res.body.status).toBe(false);
     expect(res.body.message).toContain('requeridos');
+  });
+
+  test('[C005-PORT] Debería retornar HTTP 200 con planes funerarios en POST /full-rate para codProd 1010', async () => {
+    portalService.getFullRateDetails.mockResolvedValue({
+      found: true,
+      data: {
+        planes: [{ codPlan: '80', revPlan: '001', descPlan: '1.000$ TITULAR SOLO SERVFUNER', primaTotal: 21, sumaAsegurada: 1000, deducible: 0 }],
+        coberturas: [],
+        tarifasIndividuales: []
+      },
+      message: 'Tarifas funerarias obtenidas exitosamente.'
+    });
+
+    const res = await request(app)
+      .post('/apixportal/api/v1/portal/full-rate')
+      .send({
+        codProd: '1010',
+        indTipoPlan: 'I',
+        familiares: [{ codParent: '0001', fechanac: '1988-06-15' }]
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe(true);
+    expect(res.body.data.planes[0].codPlan).toBe('80');
+    expect(portalService.getFullRateDetails).toHaveBeenCalledWith({
+      codProd: '1010',
+      indTipoPlan: 'I',
+      familiares: [{ codParent: '0001', fechanac: '1988-06-15' }]
+    });
+  });
+
+  test('[C006-PORT] Debería retornar HTTP 201 al guardar cotización funeraria en POST /save-quote', async () => {
+    portalService.saveQuoteDetails.mockResolvedValue({
+      success: true,
+      data: { codCoti: 205, codCotiRef: '1010-205' },
+      message: 'Cotización almacenada satisfactoriamente en el esquema WEBPORTAL.'
+    });
+
+    const res = await request(app)
+      .post('/apixportal/api/v1/portal/save-quote')
+      .send({
+        codProd: '1010',
+        nombreAseg: 'MARIA LOPEZ',
+        prima: 74,
+        sumaAseg: 1000,
+        hcmPlan: { codProd: '1010', codPlan: '80', revplan: '002', nombrePlan: '1.000$ GRUPO FAMILIAR', prima: 74, sumaAseg: 1000, deducible: 0 },
+        asegurados: [{ codParent: '0002', fechanac: '1988-06-15', prima: 74 }],
+        coberturas: [{ codCobert: '1001', descCobert: 'GASTOS FUNERARIOS', sumaAsegCob: 1000, deducible: 0, primaCob: 74 }]
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe(true);
+    expect(res.body.data.codCotiRef).toBe('1010-205');
   });
 });

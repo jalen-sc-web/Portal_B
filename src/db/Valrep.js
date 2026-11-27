@@ -65,15 +65,42 @@ const getMunicipality = async ({ codpais, codestado, codciudad }) => {
 
 const getLval = async ({ tipolval }) => {
   const query = `
-        SELECT CODLVAL, DESCLVAL, TIPOLVAL, ABRLVAL
+        SELECT CODLVAL, TRIM(DESCRIP) AS DESCRIP, TRIM(DESCRIP) AS DESCLVAL, TIPOLVAL
         FROM ${acselTable("LVAL")}
-        WHERE TIPOLVAL = :tipolval
+        WHERE TRIM(TIPOLVAL) = :tipolval
         ORDER BY CODLVAL
     `;
   return executeCatalogQuery(query, { tipolval });
 };
 
-const getParent = async () => {
+const getParent = async ({ codprod } = {}) => {
+  if (String(codprod || '').trim() === '1010') {
+    const query = `
+        SELECT DISTINCT lv.CODLVAL,
+               TRIM(lv.DESCRIP) AS DESCRIP,
+               MIN(pr.EDADINI) AS MIN_EDAD,
+               MAX(pr.EDADFIN) AS MAX_EDAD,
+               MAX(pr.MAXPARENT) AS MAX_PARENT
+        FROM ${acselTable("PRIMA_COBERT_PROD")} pr
+        JOIN ${acselTable("PLAN_PROD")} pp
+          ON pp.CODPROD = pr.CODPROD
+         AND pp.CODPLAN = pr.CODPLAN
+         AND pp.REVPLAN = pr.REVPLAN
+        JOIN ${acselTable('"LVAL"')} lv
+          ON lv.TIPOLVAL = 'PARENT'
+         AND lv.CODLVAL = pr.CODPARENT
+        WHERE pr.CODPROD = '1010'
+          AND pr.CODCOBERT = '1001'
+          AND pp.STSPLAN = 'ACT'
+          AND pp.FECFINVIG > SYSDATE
+          AND pp.INDCOTIWEB = 'S'
+          AND pp.INDTIPOPLAN = 'G'
+        GROUP BY lv.CODLVAL, TRIM(lv.DESCRIP)
+        ORDER BY lv.CODLVAL
+    `;
+    return executeCatalogQuery(query, {});
+  }
+
   const query = `
         SELECT CODLVAL, DESCRIP
         FROM ${acselTable('"LVAL"')}

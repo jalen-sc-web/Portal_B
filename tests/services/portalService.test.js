@@ -3,11 +3,14 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../src/db/Portal.js', () => ({
   default: {
     getOwner: vi.fn(),
+    getFullRate: vi.fn(),
+    getFuneralRate: vi.fn(),
+    saveQuote: vi.fn()
   }
 }));
 
 import Portal from '../../src/db/Portal.js';
-import { getOwnerDetails } from '../../src/services/portalService.js';
+import { getOwnerDetails, getFullRateDetails } from '../../src/services/portalService.js';
 
 describe('PortalService - Consulta de Titulares y Clientes Acsel', () => {
   beforeEach(() => {
@@ -81,5 +84,153 @@ describe('PortalService - Consulta de Titulares y Clientes Acsel', () => {
     expect(result.found).toBe(true);
     expect(result.data.codcli).toBe(101);
     expect(result.data.nomter).toBe('GONZALEZ');
+  });
+
+  test('[S005-PORT] Debería calcular tarifas funerarias individuales para codProd 1010', async () => {
+    Portal.getFuneralRate.mockResolvedValue({
+      status: true,
+      data: [
+        {
+          CODPLAN: '80',
+          REVPLAN: '001',
+          INDTIPOPLAN: 'I',
+          DESCPLAN: '1.000$ TITULAR SOLO SERVFUNER',
+          CODCOBERT: '1001',
+          DESCCOBERT: 'GASTOS FUNERARIOS',
+          DEDUCIBLE: 0,
+          ID_FAMILIAR: 1,
+          CODPARENT: '0001',
+          EDADFAMILIAR: 36,
+          PRIMACOBERT: 21,
+          SUMAASEG: 1000,
+          MAXPARENT: 1
+        }
+      ]
+    });
+
+    const result = await getFullRateDetails({
+      codProd: '1010',
+      indTipoPlan: 'I',
+      familiares: [{ codParent: '0001', fechanac: '1990-01-10' }]
+    });
+
+    expect(result.found).toBe(true);
+    expect(result.data.planes).toHaveLength(1);
+    expect(result.data.planes[0]).toMatchObject({
+      codPlan: '80',
+      revPlan: '001',
+      primaTotal: 21,
+      sumaAsegurada: 1000,
+      indTipoPlan: 'I'
+    });
+  });
+
+  test('[S006-PORT] Debería calcular tarifas funerarias familiares y excluir planes con edad fuera de rango', async () => {
+    Portal.getFuneralRate.mockResolvedValue({
+      status: true,
+      data: [
+        {
+          CODPLAN: '80',
+          REVPLAN: '002',
+          INDTIPOPLAN: 'G',
+          DESCPLAN: '1.000$ GRUPO FAMILIAR',
+          CODCOBERT: '1001',
+          DESCCOBERT: 'GASTOS FUNERARIOS',
+          DEDUCIBLE: 0,
+          ID_FAMILIAR: 1,
+          CODPARENT: '0001',
+          EDADFAMILIAR: 40,
+          PRIMACOBERT: 74,
+          SUMAASEG: 1000,
+          MAXPARENT: 1
+        },
+        {
+          CODPLAN: '80',
+          REVPLAN: '002',
+          INDTIPOPLAN: 'G',
+          DESCPLAN: '1.000$ GRUPO FAMILIAR',
+          CODCOBERT: '1001',
+          DESCCOBERT: 'GASTOS FUNERARIOS',
+          DEDUCIBLE: 0,
+          ID_FAMILIAR: 2,
+          CODPARENT: '0008',
+          EDADFAMILIAR: 77,
+          PRIMACOBERT: 0,
+          SUMAASEG: 1000,
+          MAXPARENT: 1
+        },
+        {
+          CODPLAN: '80',
+          REVPLAN: '004',
+          INDTIPOPLAN: 'G',
+          DESCPLAN: '3.000$ GRUPO FAMILIAR',
+          CODCOBERT: '1001',
+          DESCCOBERT: 'GASTOS FUNERARIOS',
+          DEDUCIBLE: 0,
+          ID_FAMILIAR: 1,
+          CODPARENT: '0001',
+          EDADFAMILIAR: 40,
+          PRIMACOBERT: 122,
+          SUMAASEG: 3000,
+          MAXPARENT: 1
+        },
+        {
+          CODPLAN: '80',
+          REVPLAN: '004',
+          INDTIPOPLAN: 'G',
+          DESCPLAN: '3.000$ GRUPO FAMILIAR',
+          CODCOBERT: '1001',
+          DESCCOBERT: 'GASTOS FUNERARIOS',
+          DEDUCIBLE: 0,
+          ID_FAMILIAR: 2,
+          CODPARENT: '0008',
+          EDADFAMILIAR: 77,
+          PRIMACOBERT: null,
+          SUMAASEG: null,
+          MAXPARENT: null
+        }
+      ]
+    });
+
+    const result = await getFullRateDetails({
+      codProd: '1010',
+      indTipoPlan: 'G',
+      familiares: [
+        { codParent: '0001', edad: 40 },
+        { codParent: '0008', edad: 77 }
+      ]
+    });
+
+    expect(result.found).toBe(true);
+    expect(result.data.planes).toHaveLength(1);
+    expect(result.data.planes[0].codPlan).toBe('80');
+    expect(result.data.planes[0].revPlan).toBe('002');
+  });
+
+  test('[S007-PORT] Debería rechazar titular menor de 18 años o más de 6 asegurados en Funerario', async () => {
+    const anioMenor = new Date().getFullYear() - 15;
+    await expect(
+      getFullRateDetails({
+        codProd: '1010',
+        indTipoPlan: 'I',
+        familiares: [{ codParent: '0001', fechanac: `${anioMenor}-01-01` }]
+      })
+    ).rejects.toThrow('mayor de edad');
+
+    await expect(
+      getFullRateDetails({
+        codProd: '1010',
+        indTipoPlan: 'G',
+        familiares: [
+          { codParent: '0001', edad: 40 },
+          { codParent: '0004', edad: 38 },
+          { codParent: '0005', edad: 12 },
+          { codParent: '0006', edad: 10 },
+          { codParent: '0007', edad: 65 },
+          { codParent: '0008', edad: 63 },
+          { codParent: '0009', edad: 25 }
+        ]
+      })
+    ).rejects.toThrow('máximo de 6 asegurados');
   });
 });
