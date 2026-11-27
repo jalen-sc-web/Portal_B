@@ -245,7 +245,12 @@ export const getQuoteDetail = async (codcoti) => {
         h.NOMBREPLAN,
         h.PRIMA AS PRIMA_PLAN,
         h.SUMA_ASEG AS SUMA_ASEG_PLAN,
-        h.DEDUCIBLE
+        h.DEDUCIBLE,
+        (
+          SELECT COUNT(*) 
+          FROM ${asegTable} a 
+          WHERE a.CODCOTI = c.CODCOTI
+        ) AS TOTAL_INTEGRANTES
       FROM ${cotizTable} c
       LEFT JOIN ${hcmTable} h ON h.CODCOTI = c.CODCOTI
       WHERE c.CODCOTI = :codcoti
