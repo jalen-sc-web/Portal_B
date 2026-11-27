@@ -8,5 +8,6 @@ router
     .post("/search-owner", verifyToken, portalController.getOwner)
     .post("/full-rate", portalController.getFullRate)
     .post("/save-quote", portalController.saveQuote)
+    .get("/get-quote/:codCoti", portalController.getQuote)
         
 export default router;

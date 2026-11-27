@@ -113,8 +113,43 @@ const saveQuote = async (req, res, next) => {
     }
 };
 
+const getQuote = async (req, res, next) => {
+    try {
+        const { codCoti } = req.params; // <-- Recibe el código interno numérico de la cotización
+
+        if (!codCoti || isNaN(Number(codCoti))) {
+            return res.status(400).json({
+                status: false,
+                message: "Debe proporcionar un código de cotización válido."
+            });
+        }
+
+        console.log(codCoti);
+        
+        // Llamada al servicio que consulta la base de datos (Oracle/SQL)
+        const result = await portalService.getQuoteDetails({ codCoti: Number(codCoti) });
+
+        if (!result.found) {
+            return res.status(404).json({
+                status: false,
+                data: null,
+                message: result.message || "No se encontró la cotización especificada para la emisión."
+            });
+        }
+
+        return res.status(200).json({
+            status: true,
+            data: result.data, // Aquí viaja el objeto con hcmPlan, asegurados, etc.
+            message: result.message || "Cotización recuperada exitosamente."
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export default {
     getOwner,
     getFullRate,
-    saveQuote
+    saveQuote,
+    getQuote
 };

@@ -368,7 +368,7 @@ const getFullRate = async (data) => {
   }
 };
 
-export const saveQuote = async (data) => {
+const saveQuote = async (data) => {
 
   if (!data) {
     return { status: false, message: "EL PAYLOAD DE LA COTIZACIÓN ESTÁ VACÍO." };
@@ -464,12 +464,12 @@ export const saveQuote = async (data) => {
       codUsuCrea
     });
 
-    // 5. INSERTAR ASEGURADOS / FAMILIARES MÚLTIPLES EN WEBPORTAL.COTIZACION_HCM_ASEG
+    // 5. INSERTAR ASEGURADOS / FAMILIARES MÚLTIPLES EN WEBPORTAL.COTIZACION_HCM_ASEG (Usando FECNAC)
     const insertAsegQuery = `
       INSERT INTO WEBPORTAL.COTIZACION_HCM_ASEG (
-        CODCOTI, CODPARENT, EDAD, PRIMA, FECHACREA, CODUSUCREA
+        CODCOTI, CODPARENT, FECNAC, PRIMA, FECHACREA, CODUSUCREA
       ) VALUES (
-        :codCoti, :codParent, :edad, :prima, SYSTIMESTAMP, :codUsuCrea
+        :codCoti, :codParent, TO_DATE(:fecnac, 'YYYY-MM-DD'), :prima, SYSTIMESTAMP, :codUsuCrea
       )
     `;
 
@@ -477,7 +477,7 @@ export const saveQuote = async (data) => {
       await connection.execute(insertAsegQuery, {
         codCoti,
         codParent: fam.codParent,
-        edad: fam.edad,
+        fecnac: fam.fechanac, // Asegúrate de que llegue en formato 'YYYY-MM-DD'
         prima: fam.prima !== undefined ? fam.prima : 0,
         codUsuCrea
       });
@@ -541,9 +541,217 @@ export const saveQuote = async (data) => {
   }
 };
 
+const getQuoteById = async ({ codCoti }) => {
+    if (!codCoti || isNaN(Number(codCoti))) {
+        const error = new Error("El código de cotización (codCoti) es requerido y debe ser numérico.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    let connection;
+    
+    try {
+        connection = await getPortalConnection();
+
+        const queryCotizacion = `
+            SELECT CODCOTI, CODCOTI_REF, CODPROD, NOMBRE_ASEG, TELEFONO, EMAIL, PRIMA, SUMA_ASEG
+            FROM WEBPORTAL.COTIZACIONES
+            WHERE CODCOTI = :codCoti
+        `;
+        const cotiRes = await connection.execute(queryCotizacion, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+
+        if (!cotiRes.rows || cotiRes.rows.length === 0) {
+            return {
+                found: false,
+                data: null,
+                message: "No se encontró la cotización especificada para el proceso de emisión."
+            };
+        }
+
+        const coti = cotiRes.rows[0];
+
+        const queryHcm = `
+            SELECT CODPROD, CODPLAN, REVPLAN, NOMBREPLAN, PRIMA, SUMA_ASEG, DEDUCIBLE
+            FROM WEBPORTAL.COTIZACION_HCM
+            WHERE CODCOTI = :codCoti
+        `;
+        const hcmRes = await connection.execute(queryHcm, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const hcmPlan = hcmRes.rows[0] || {};
+
+        const queryAseg = `
+            SELECT CODASEG, CODPARENT, FECNAC, PRIMA
+            FROM WEBPORTAL.COTIZACION_HCM_ASEG
+            WHERE CODCOTI = :codCoti
+        `;
+        const asegRes = await connection.execute(queryAseg, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const aseguradosRows = asegRes.rows || [];
+
+        const formatearFechaYMD = (fechaNac) => {
+            if (!fechaNac) return '';
+            const d = new Date(fechaNac);
+            if (isNaN(d.getTime())) return '';
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        let connectionAcsel;
+        const aseguradosMapeados = [];
+
+        try {
+            connectionAcsel = await getAcselConnection();
+
+            for (const fam of aseguradosRows) {
+                let descParentDesc = fam.CODPARENT === '0001' ? 'TITULAR' : 'FAMILIAR';
+
+                if (fam.CODPARENT) {
+                    const queryAcsel = `
+                        SELECT DESCRIP 
+                        FROM ${acselTable('"LVAL"')} 
+                        WHERE TIPOLVAL = 'PARENT' 
+                          AND CODLVAL = :codParent
+                    `;
+                    const acselRes = await connectionAcsel.execute(
+                        queryAcsel, 
+                        { codParent: fam.CODPARENT }, 
+                        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+                    );
+
+                    if (acselRes.rows && acselRes.rows.length > 0) {
+                        descParentDesc = acselRes.rows[0].DESCRIP;
+                    }
+                }
+
+                const fechaNacStr = formatearFechaYMD(fam.FECNAC);
+
+                aseguradosMapeados.push({
+                    codAseg: fam.CODASEG,
+                    codParent: fam.CODPARENT,
+                    descParent: descParentDesc,
+                    fecnac: fechaNacStr,
+                    prima: Number(fam.PRIMA || 0)
+                });
+            }
+        } catch (acselErr) {
+            aseguradosRows.forEach((fam, index) => {
+                const fechaNacStr = formatearFechaYMD(fam.FECNAC);
+
+                aseguradosMapeados.push({
+                    codAseg: fam.CODASEG,
+                    codParent: fam.CODPARENT,
+                    descParent: index === 0 ? 'TITULAR' : 'FAMILIAR',
+                    fecnac: fechaNacStr,
+                    prima: Number(fam.PRIMA || 0)
+                });
+            });
+        } finally {
+            if (connectionAcsel) {
+                try {
+                    await connectionAcsel.close();
+                } catch (closeErr) {}
+            }
+        }
+
+        const queryCob = `
+            SELECT CODCOBERT, DESCCOBERT, SUMAASEG_COB, DEDUCIBLE, PRIMA_COB
+            FROM WEBPORTAL.COTIZACION_HCM_COB
+            WHERE CODCOTI = :codCoti
+        `;
+        const cobRes = await connection.execute(queryCob, { codCoti: Number(codCoti) }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+
+        const quoteData = {
+            codCoti: Number(coti.CODCOTI),
+            codCotiRef: coti.CODCOTI_REF,
+            codProd: coti.CODPROD,
+            nombreAseg: coti.NOMBRE_ASEG,
+            telefono: coti.TELEFONO,
+            email: coti.EMAIL,
+            prima: Number(coti.PRIMA || 0),
+            sumaAseg: Number(coti.SUMA_ASEG || 0),
+
+            hcmPlan: {
+                codProd: hcmPlan.CODPROD || coti.CODPROD,
+                codPlan: hcmPlan.CODPLAN,
+                revplan: hcmPlan.REVPLAN,
+                nombrePlan: hcmPlan.NOMBREPLAN,
+                prima: Number(hcmPlan.PRIMA || coti.PRIMA || 0),
+                sumaAseg: Number(hcmPlan.SUMA_ASEG || coti.SUMA_ASEG || 0),
+                deducible: Number(hcmPlan.DEDUCIBLE || 0)
+            },
+
+            asegurados: aseguradosMapeados.map(fam => ({
+                codAseg: fam.codAseg,
+                codParent: fam.codParent,
+                descParent: fam.descParent,
+                fecnac: fam.fecnac,
+                prima: fam.prima
+            })),
+
+            coberturas: cobRes.rows.map(cob => ({
+                codCobert: cob.CODCOBERT,
+                descCobert: cob.DESCCOBERT,
+                sumaAsegCob: Number(cob.SUMAASEG_COB || 0),
+                deducible: Number(cob.DEDUCIBLE || 0),
+                primaCob: Number(cob.PRIMA_COB || 0)
+            }))
+        };
+
+        return {
+            found: true,
+            data: quoteData,
+            message: "COTIZACIÓN RECUPERADA EXITOSAMENTE PARA EMISIÓN."
+        };
+
+    } catch (error) {
+        const err = new Error("ERROR EN LA BASE DE DATOS AL CONSULTAR LA COTIZACIÓN");
+        err.statusCode = 500;
+        err.isOperational = true;
+        throw err;
+    } finally {
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (closeErr) {}
+        }
+    }
+};
+
+const getParent = async () => {
+  const query = `
+        SELECT CODLVAL, DESCRIP
+        FROM ${acselTable('"LVAL"')}
+        WHERE TIPOLVAL = 'PARENT'
+          AND CODLVAL IN ('0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008')
+        ORDER BY CODLVAL
+    `;
+  
+  let connection;
+  try {
+    connection = await getAcselConnection();
+    const result = await connection.execute(query, {}, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    });
+    return { data: result.rows || [] };
+  } catch (error) {
+    console.error("Error en consulta catálogo Acsel (getParent):", error);
+    return { data: [] };
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error("Error al cerrar conexión de catálogo:", err);
+      }
+    }
+  }
+};
+
 export default {
   getOwner,
   getRolesByCedula,
   getFullRate,
-  saveQuote
+  saveQuote,
+  getQuoteById
 };

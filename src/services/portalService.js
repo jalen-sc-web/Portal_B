@@ -103,16 +103,18 @@ export const getFullRateDetails = async ({ familiares }) => {
         throw error;
     }
 
+    // Validamos que cada familiar incluya codParent y fechanac válidos
     for (const fam of familiares) {
-        if (!fam.codParent || fam.edad === undefined || fam.edad === null || fam.edad === '') {
-            const error = new Error("Cada familiar debe incluir un codParent y una edad válidos.");
+        if (!fam.codParent || !fam.fechanac || fam.fechanac.trim() === '') {
+            const error = new Error("Cada familiar debe incluir un codParent y una fecha de nacimiento (fechanac) válidos.");
             error.statusCode = 400;
             error.isOperational = true;
             throw error;
         }
     }
 
-    const familiaresString = familiares.map(f => `${f.codParent}:${f.edad}`).join(',');
+    // Construimos el string combinando el código de parentesco y la fecha de nacimiento
+    const familiaresString = familiares.map(f => `${f.codParent}:${f.fechanac}`).join(',');
 
     const result = await Portal.getFullRate({ familiares: familiaresString });
 
@@ -157,7 +159,7 @@ export const getFullRateDetails = async ({ familiares }) => {
                 descPlan: row.DESCPLAN,
                 primaTotal: 0,
                 sumaAsegurada: 0,
-                deducible: row.DEDUCIBLE || row.VALDED || 0 // <-- Incluimos el deducible a nivel de plan
+                deducible: row.DEDUCIBLE || row.VALDED || 0
             });
         }
 
@@ -185,7 +187,7 @@ export const getFullRateDetails = async ({ familiares }) => {
         descCobert: row.DESCCOBERT,
         prima: row.PRIMA,
         sumaAseg: row.SUMAASEG,
-        deducible: row.DEDUCIBLE || row.VALDED || 0 // <-- Incluimos el deducible en cada cobertura
+        deducible: row.DEDUCIBLE || row.VALDED || 0
     }));
 
     // ==========================================
@@ -193,7 +195,7 @@ export const getFullRateDetails = async ({ familiares }) => {
     // ==========================================
     const tarifasIndividuales = rowsIndividual.map(row => ({
         codParent: row.CODPARENT,
-        edadFamiliar: row.EDADFAMILIAR,
+        edadFamiliar: row.EDADFAMILIAR, // Mantenemos el campo devuelto por el motor de BD si aplica
         codPlan: row.CODPLAN || null,
         revPlan: row.REVPLAN || null,
         descPlan: row.DESCPLAN,
@@ -204,9 +206,9 @@ export const getFullRateDetails = async ({ familiares }) => {
     return {
         found: true,
         data: {
-            planes,         
+            planes,          
             coberturas,
-            tarifasIndividuales // <--- Nuevos datos del segundo cursor
+            tarifasIndividuales
         },
         message: "Tarifas agrupadas y obtenidas exitosamente."
     };
@@ -268,7 +270,7 @@ export const saveQuoteDetails = async ({
         // Lista de asegurados / familiares repetibles (titular, cónyuge, hijos múltiples)
         asegurados: asegurados.map(fam => ({
             codParent: String(fam.codParent),
-            edad: Number(fam.edad),
+            fechanac: fam.fechanac,
             prima: Number(fam.prima || 0)
         })),
 
@@ -310,9 +312,38 @@ export const saveQuoteDetails = async ({
     };
 };
 
+export const getQuoteDetails = async ({ codCoti }) => {
+    // 1. Validación de parámetros de entrada
+    if (!codCoti || isNaN(Number(codCoti))) {
+        const error = new Error("El código de cotización (codCoti) es requerido y debe ser numérico.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    // 2. Llamada directa a la función que consulta la base de datos
+    const result = await Portal.getQuoteById({ codCoti: Number(codCoti) });
+
+    // 3. Si la base de datos indicó que no se encontró
+    if (!result.found) {
+        return {
+            found: false,
+            data: null,
+            message: result.message || "No se encontró la cotización especificada para el proceso de emisión."
+        };
+    }
+
+    // 4. Retornamos el resultado directamente ya que getQuoteById ya estructuró los datos perfectamente
+    return {
+        found: true,
+        data: result.data,
+        message: result.message || "Cotización recuperada exitosamente para la emisión."
+    };
+};
 
 export default {
     getOwnerDetails,
     getFullRateDetails,
-    saveQuoteDetails
+    saveQuoteDetails,
+    getQuoteDetails
 };

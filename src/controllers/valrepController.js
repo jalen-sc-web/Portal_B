@@ -19,7 +19,7 @@ const getState = async (req, res, next) => {
         const data = await valrepService.getStates(codpais);
         return res.status(200).json({
             status: true,
-            data,
+            state: data,
             message: "Estados obtenidos exitosamente."
         });
     } catch (error) {
@@ -34,7 +34,7 @@ const getCity = async (req, res, next) => {
         const data = await valrepService.getCities(codpais, codestado);
         return res.status(200).json({
             status: true,
-            data,
+            city: data,
             message: "Ciudades obtenidas exitosamente."
         });
     } catch (error) {
@@ -50,7 +50,7 @@ const getMunicipality = async (req, res, next) => {
         const data = await valrepService.getMunicipalities(codpais, codestado, codciudad);
         return res.status(200).json({
             status: true,
-            data,
+            municipality: data,
             message: "Municipios obtenidos exitosamente."
         });
     } catch (error) {
