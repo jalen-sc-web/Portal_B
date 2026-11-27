@@ -1,4 +1,5 @@
 import { getPortalConnection, portalTable } from "../config/database.js";
+import { logger, serializeError } from "../utils/logger.js";
 import oracledb from "oracledb";
 
 /**
@@ -56,9 +57,9 @@ const getUserRoles = async (codusu) => {
     return result.rows || [];
   } catch (error) {
     if (error.message?.includes("ORA-00942")) {
-      console.warn("[UserRoles] La tabla ROL_USUARIOS o ROLES aún no está creada en el esquema WEBPORTAL.");
+      logger.warn("[UserRoles] La tabla ROL_USUARIOS o ROLES aún no está creada en el esquema WEBPORTAL.");
     } else {
-      console.error("[UserRoles] Error al consultar roles de usuario:", error.message);
+      logger.error("Error al consultar roles de usuario", "UserRolesDB.getUserRoles", { error: serializeError(error) });
     }
     return [];
   } finally {
@@ -66,7 +67,7 @@ const getUserRoles = async (codusu) => {
       try {
         await connection.close();
       } catch (e) {
-        console.error("[UserRoles] Error al cerrar conexión en getUserRoles:", e);
+        logger.error("Error al cerrar conexión en getUserRoles", "UserRolesDB.getUserRoles", { error: serializeError(e) });
       }
     }
   }
@@ -114,7 +115,7 @@ const syncUserRoles = async (codusu, cursorRoles = []) => {
       rolesMasterMap = await getRolesMasterMap(connection);
     } catch (tblErr) {
       if (tblErr.message?.includes("ORA-00942")) {
-        console.warn("[UserRoles] Tabla ROLES no encontrada. Retornando roles directos del cursor.");
+        logger.warn("[UserRoles] Tabla ROLES no encontrada. Retornando roles directos del cursor.");
         return incomingRoleNames.length > 0 ? incomingRoleNames : ["ASEGURADO"];
       }
       throw tblErr;
@@ -138,7 +139,7 @@ const syncUserRoles = async (codusu, cursorRoles = []) => {
       currentDbRows = result.rows || [];
     } catch (tblError) {
       if (tblError.message?.includes("ORA-00942")) {
-        console.warn("[UserRoles] Tabla ROL_USUARIOS no encontrada en WEBPORTAL. Retornando roles directos del cursor.");
+        logger.warn("[UserRoles] Tabla ROL_USUARIOS no encontrada en WEBPORTAL. Retornando roles directos del cursor.");
         return incomingRoleNames.length > 0 ? incomingRoleNames : ["ASEGURADO"];
       }
       throw tblError;
@@ -162,7 +163,7 @@ const syncUserRoles = async (codusu, cursorRoles = []) => {
     for (const rolName of incomingRoleNames) {
       const codrol = rolesMasterMap.get(rolName);
       if (!codrol) {
-        console.warn(`[UserRoles Sync] El rol '${rolName}' no existe en la tabla WEBPORTAL.ROLES.`);
+        logger.warn(`[UserRoles Sync] El rol '${rolName}' no existe en la tabla WEBPORTAL.ROLES.`);
         continue;
       }
 
@@ -183,7 +184,7 @@ const syncUserRoles = async (codusu, cursorRoles = []) => {
       }
     }
 
-    console.log(
+    logger.info(
       `[UserRoles Sync] Usuario ${cleanUser} -> Insertar: [${toInsert.map(r => r.rolName)}], Reactivar: [${toReactivate.map(r => r.rolName)}], Desactivar: [${toDeactivate.map(r => r.rolName)}]`
     );
 
@@ -242,12 +243,12 @@ const syncUserRoles = async (codusu, cursorRoles = []) => {
     );
     return finalActiveRoles.length > 0 ? finalActiveRoles : (incomingRoleNames.length > 0 ? incomingRoleNames : ["ASEGURADO"]);
   } catch (error) {
-    console.error("[UserRoles Sync] Error durante la sincronización de roles:", error.message);
+    logger.error("Error durante la sincronización de roles", "UserRolesDB.syncUserRoles", { error: serializeError(error) });
     if (connection) {
       try {
         await connection.rollback();
       } catch (rbErr) {
-        console.error("[UserRoles Sync] Error en rollback:", rbErr);
+        logger.error("Error en rollback de sincronización de roles", "UserRolesDB.syncUserRoles", { error: serializeError(rbErr) });
       }
     }
     // Fallback de contingencia: no interrumpir el login
@@ -257,7 +258,7 @@ const syncUserRoles = async (codusu, cursorRoles = []) => {
       try {
         await connection.close();
       } catch (closeErr) {
-        console.error("[UserRoles Sync] Error al cerrar conexión:", closeErr);
+        logger.error("Error al cerrar conexión en syncUserRoles", "UserRolesDB.syncUserRoles", { error: serializeError(closeErr) });
       }
     }
   }
@@ -283,7 +284,7 @@ const getMenuByRole = async (codusu) => {
 
     const userRoles = rolesResult.rows || [];
     if (userRoles.length === 0) {
-      console.warn(`[UserRoles] El usuario ${cleanUser} no tiene roles activos asignados.`);
+      logger.warn(`[UserRoles] El usuario ${cleanUser} no tiene roles activos asignados.`);
       return [];
     }
 
@@ -323,14 +324,14 @@ const getMenuByRole = async (codusu) => {
     return menuResult.rows || [];
 
   } catch (error) {
-    console.error("[UserRoles] Error al obtener el menú del usuario:", error.message);
+    logger.error("Error al obtener el menú del usuario", "UserRolesDB.getMenuByRole", { error: serializeError(error) });
     return [];
   } finally {
     if (connection) {
       try {
         await connection.close();
       } catch (closeErr) {
-        console.error("[UserRoles] Error al cerrar conexión:", closeErr);
+        logger.error("Error al cerrar conexión en getMenuByRole", "UserRolesDB.getMenuByRole", { error: serializeError(closeErr) });
       }
     }
   }

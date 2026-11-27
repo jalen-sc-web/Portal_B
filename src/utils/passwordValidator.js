@@ -1,5 +1,6 @@
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
+import { logger, serializeError } from './logger.js';
 
 // Carga la lista negra de contraseñas en memoria (Set O(1))
 let blacklistSet = new Set();
@@ -8,7 +9,7 @@ try {
   const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
   blacklistSet = new Set(data.map(p => String(p).trim().toLowerCase()));
 } catch (e) {
-  console.warn("⚠️ No se pudo cargar passwordBlacklist.json:", e.message);
+  logger.warn("No se pudo cargar passwordBlacklist.json", "PasswordValidator", { error: serializeError(e) });
 }
 
 /**

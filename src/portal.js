@@ -9,6 +9,7 @@ import v1AuthRoutes from './v1/authRoutes.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorMiddleware.js';
 import { apiReference } from '@scalar/express-api-reference';
 import { openApiSpec } from './config/swagger.js';
+import { logger, serializeError } from './utils/logger.js';
 
 const app = express();
 
@@ -23,6 +24,35 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Logging HTTP de solicitudes
+app.use((req, res, next) => {
+  if (req.originalUrl.endsWith('/logs')) return next();
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const durationMs = Date.now() - startedAt;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    logger.log(level, `${req.method} ${req.originalUrl} ${res.statusCode} (${durationMs}ms)`, 'HttpServer', {
+      method: req.method,
+      url: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs,
+      ip: req.ip,
+      user: req.user?.username || null
+    });
+  });
+  next();
+});
+
+// Recepción de logs estructurados desde el frontend
+app.post('/apixportal/api/v1/logs', (req, res) => {
+  const logs = req.body?.logs;
+  if (!Array.isArray(logs)) {
+    return res.status(400).json({ status: false, message: 'El campo logs debe ser un arreglo.' });
+  }
+  logger.enqueueExternalLogs(logs, 'frontend');
+  return res.status(202).json({ status: true, accepted: logs.length });
+});
 
 // Documentación interactiva con Scalar
 app.get('/docs/openapi.json', (req, res) => {
@@ -54,17 +84,33 @@ async function startApplication() {
     try {
         await initializePool();        
         app.listen(PORT, () => {
-            console.log(`🚀 API (HTTP) escuchando en puerto ${PORT}`);
+            logger.info(`API (HTTP) escuchando en puerto ${PORT}`, 'Bootstrap', { port: PORT });
         });
     } catch (error) {
-        console.error('❌ Error fatal al iniciar la aplicación:', error);
+        logger.error('Error fatal al iniciar la aplicación', 'Bootstrap', { error: serializeError(error) });
+        await logger.shutdown();
         await closePoolAndExit();
         process.exit(1);
     }
 }
 
-export default app;
+const handleShutdown = async (signal) => {
+    logger.info(`Señal ${signal} recibida, cerrando aplicación`, 'Bootstrap', { signal });
+    await logger.shutdown();
+    await closePoolAndExit();
+    process.exit(0);
+};
 
 if (process.env.NODE_ENV !== 'test') {
+    process.on('SIGINT', () => void handleShutdown('SIGINT'));
+    process.on('SIGTERM', () => void handleShutdown('SIGTERM'));
+    process.on('unhandledRejection', (reason) => {
+        logger.error('Promesa rechazada no manejada', 'Process', { error: serializeError(reason) });
+    });
+    process.on('uncaughtException', (error) => {
+        logger.error('Excepción no capturada', 'Process', { error: serializeError(error) });
+    });
     startApplication();
 }
+
+export default app;

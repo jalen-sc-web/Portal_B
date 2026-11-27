@@ -1,4 +1,5 @@
 import { getPortalConnection, portalTable } from "../config/database.js";
+import { logger, serializeError } from "../utils/logger.js";
 import oracledb from "oracledb";
 
 const getUser = async (identifier, { onlyActive = true } = {}) => {
@@ -52,14 +53,14 @@ const getUser = async (identifier, { onlyActive = true } = {}) => {
 
     return { data: result.rows[0] || null };
   } catch (err) {
-    console.error("Error Oracle Auth:", err);
-    return { error: "Error en la base de datos al buscar usuario" };
+    logger.error("Error Oracle Auth", "AuthDB.findUserByUsername", { error: serializeError(err) });
+    return { error: "Error en la base de datos al buscar usuario", rawError: err };
   } finally {
     if (connection) {
       try {
         await connection.close();
       } catch (e) {
-        console.error("Error al cerrar conexión:", e);
+        logger.error("Error al cerrar conexión en findUserByUsername", "AuthDB", { error: serializeError(e) });
       }
     }
   }
@@ -92,14 +93,14 @@ const createUser = async ({
     );
     return { success: result.rowsAffected === 1 };
   } catch (err) {
-    console.error("Error al crear usuario en Oracle Auth:", err);
-    return { error: "Error en la base de datos al registrar usuario" };
+    logger.error("Error al crear usuario en Oracle Auth", "AuthDB.createUser", { error: serializeError(err) });
+    return { error: "Error en la base de datos al registrar usuario", rawError: err };
   } finally {
     if (connection) {
       try {
         await connection.close();
       } catch (e) {
-        console.error("Error al cerrar conexión en createUser:", e);
+        logger.error("Error al cerrar conexión en createUser", "AuthDB.createUser", { error: serializeError(e) });
       }
     }
   }
@@ -151,14 +152,14 @@ const updatePassword = async (username, hashedPassword, options = {}) => {
     );
     return { success: result.rowsAffected === 1 };
   } catch (err) {
-    console.error("Error al actualizar clave:", err);
-    return { error: "Error en la base de datos al actualizar la clave" };
+    logger.error("Error al actualizar clave", "AuthDB.updatePassword", { error: serializeError(err) });
+    return { error: "Error en la base de datos al actualizar la clave", rawError: err };
   } finally {
     if (connection) {
       try {
         await connection.close();
       } catch (e) {
-        console.error("Error al cerrar conexión en updatePassword:", e);
+        logger.error("Error al cerrar conexión en updatePassword", "AuthDB.updatePassword", { error: serializeError(e) });
       }
     }
   }
