@@ -25,16 +25,16 @@ const getOwner = async (req, res, next) => {
 
 const getFullRate = async (req, res, next) => {
     try {
-        const { familiares } = req.body; // <-- Recibe el array de objetos: [{ codParent: "0001", edad: 25 }, ...]
+        const { codProd, indTipoPlan, familiares } = req.body;
         
         if (!familiares || !Array.isArray(familiares) || familiares.length === 0) {
             return res.status(400).json({
                 status: false,
-                message: "Debe proporcionar un array de familiares con su código de parentesco y edad."
+                message: "Debe proporcionar un array de familiares con su código de parentesco y fecha de nacimiento o edad."
             });
         }
 
-        const result = await portalService.getFullRateDetails({ familiares });
+        const result = await portalService.getFullRateDetails({ codProd, indTipoPlan, familiares });
 
         if (!result.found) {
             return res.status(404).json({
@@ -72,7 +72,7 @@ const saveQuote = async (req, res, next) => {
         } = req.body;
 
         // Validaciones básicas de integridad del payload
-        if (!codProd || !nombreAseg || !prima || !hcmPlan || !asegurados || !Array.isArray(asegurados) || asegurados.length === 0) {
+        if (!codProd || !nombreAseg || prima === undefined || prima === null || !hcmPlan || !asegurados || !Array.isArray(asegurados) || asegurados.length === 0) {
             return res.status(400).json({
                 status: false,
                 message: "Faltan datos obligatorios para procesar y guardar la cotización maestra o sus dependientes."

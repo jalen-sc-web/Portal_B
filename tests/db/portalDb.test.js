@@ -98,4 +98,58 @@ describe('Portal DB - Capa de Acceso a Datos de Acsel / Clientes (Mocks)', () =>
     expect(result.error).toBeDefined();
     expect(mockConnection.close).toHaveBeenCalledTimes(1);
   });
+
+  test('[S005-DPOR] Debería consultar tarifas funerarias en Acsel y cerrar la conexión', async () => {
+    const mockRows = [{ CODPLAN: '80', REVPLAN: '001', PRIMACOBERT: 21, SUMAASEG: 1000 }];
+    mockConnection.execute.mockResolvedValue({ rows: mockRows });
+
+    const result = await Portal.getFuneralRate({ indTipoPlan: 'I', familiares: '0001:1988-06-15' });
+
+    expect(result.status).toBe(true);
+    expect(result.data).toEqual(mockRows);
+    expect(mockConnection.execute).toHaveBeenCalledWith(
+      expect.stringContaining('PRIMA_COBERT_PROD'),
+      { indTipoPlan: 'I', familiares: '0001:1988-06-15' },
+      expect.anything()
+    );
+    expect(mockConnection.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('[S006-DPOR] Debería capturar errores de Oracle en getFuneralRate con rawError y cerrar la conexión', async () => {
+    mockConnection.execute.mockRejectedValue(new Error('ORA-00942: table or view does not exist'));
+
+    const result = await Portal.getFuneralRate({ indTipoPlan: 'G', familiares: '0001:1988-06-15' });
+
+    expect(result.status).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.rawError).toBeDefined();
+    expect(mockConnection.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('[S007-DPOR] Debería registrar la cotización insertando FECNAC en COTIZACION_HCM_ASEG', async () => {
+    mockConnection.commit = vi.fn().mockResolvedValue(undefined);
+    mockConnection.rollback = vi.fn().mockResolvedValue(undefined);
+    mockConnection.execute
+      .mockResolvedValueOnce({ outBinds: { codcoti: [201] } })
+      .mockResolvedValue({});
+
+    const result = await Portal.saveQuote({
+      codProd: '1010',
+      nombreAseg: 'MARIA LOPEZ',
+      prima: 74,
+      sumaAseg: 1000,
+      hcmPlan: { codProd: '1010', codPlan: '80', revPlan: '002', nombrePlan: 'FUNERARIO', prima: 74, sumaAseg: 1000, deducible: 0 },
+      asegurados: [{ codParent: '0002', fecnac: '1988-06-15', prima: 74 }],
+      coberturas: [{ codCobert: '1001', descCobert: 'GASTOS FUNERARIOS', sumaAsegCob: 1000, deducible: 0, primaCob: 74 }]
+    });
+
+    expect(result.status).toBe(true);
+    expect(result.data).toEqual({ codCoti: 201, codCotiRef: '1010-201' });
+    expect(mockConnection.execute).toHaveBeenCalledWith(
+      expect.stringContaining('FECNAC'),
+      expect.objectContaining({ codCoti: 201, codParent: '0002', fecnac: '1988-06-15' })
+    );
+    expect(mockConnection.commit).toHaveBeenCalledTimes(1);
+    expect(mockConnection.close).toHaveBeenCalledTimes(1);
+  });
 });

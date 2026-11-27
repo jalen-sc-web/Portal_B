@@ -95,7 +95,253 @@ export const getOwnerDetails = async ({ tipoid, numid, dvid }) => {
     };
 };
 
-export const getFullRateDetails = async ({ familiares }) => {
+const resolveFechaNacAndEdad = (fam) => {
+    const rawDate = fam.fechanac ?? fam.fecnac;
+    if (rawDate && typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawDate.trim())) {
+        const fecnac = rawDate.trim().slice(0, 10);
+        const [y, m, d] = fecnac.split('-').map(Number);
+        const birth = new Date(y, m - 1, d);
+        if (isNaN(birth.getTime())) {
+            const error = new Error("La fecha de nacimiento proporcionada no es válida.");
+            error.statusCode = 400;
+            error.isOperational = true;
+            throw error;
+        }
+        const hoy = new Date();
+        let edad = hoy.getFullYear() - birth.getFullYear();
+        const mDiff = hoy.getMonth() - birth.getMonth();
+        if (mDiff < 0 || (mDiff === 0 && hoy.getDate() < birth.getDate())) {
+            edad--;
+        }
+        if (edad < 0) {
+            const error = new Error("La fecha de nacimiento no puede ser futura.");
+            error.statusCode = 400;
+            error.isOperational = true;
+            throw error;
+        }
+        // Edad actuarial (cumpleaños más cercano: +1 si han pasado >= 6 meses desde el último cumpleaños)
+        let mesesDesdeCumple = (hoy.getMonth() - birth.getMonth() + 12) % 12;
+        if (hoy.getDate() < birth.getDate()) {
+            mesesDesdeCumple = (mesesDesdeCumple - 1 + 12) % 12;
+        }
+        if (mesesDesdeCumple >= 6) {
+            edad++;
+        }
+        return { fecnac, edad };
+    }
+
+    if (fam.edad !== undefined && fam.edad !== null && fam.edad !== '' && !isNaN(Number(fam.edad))) {
+        const edadNum = Number(fam.edad);
+        if (edadNum < 0) {
+            const error = new Error("La edad del integrante no puede ser negativa.");
+            error.statusCode = 400;
+            error.isOperational = true;
+            throw error;
+        }
+        const hoy = new Date();
+        const anioNac = hoy.getFullYear() - Math.floor(edadNum);
+        const mm = String(hoy.getMonth() + 1).padStart(2, '0');
+        const dd = String(hoy.getDate()).padStart(2, '0');
+        return { fecnac: `${anioNac}-${mm}-${dd}`, edad: edadNum };
+    }
+
+    const error = new Error("Cada familiar debe incluir un codParent y una fecha de nacimiento o edad válidos.");
+    error.statusCode = 400;
+    error.isOperational = true;
+    throw error;
+};
+
+const buildFuneralRateResponse = async ({ indTipoPlan, normalized }) => {
+    const tipoPlan = String(indTipoPlan || (normalized.length > 1 ? 'G' : 'I')).trim().toUpperCase();
+    if (tipoPlan !== 'I' && tipoPlan !== 'G') {
+        const error = new Error("El tipo de plan funerario debe ser 'I' (Individual) o 'G' (Grupo Familiar).");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    const titulares = normalized.filter(f => f.codParent === '0001' || f.codParent === '0002');
+    if (titulares.length !== 1) {
+        const error = new Error("Debe incluir exactamente un asegurado titular (Masculino o Femenino).");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (titulares[0].edad < 18) {
+        const error = new Error("El asegurado titular debe ser mayor de edad (mínimo 18 años).");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (tipoPlan === 'I' && normalized.length > 1) {
+        const error = new Error("El plan funerario individual solo admite al asegurado titular.");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (tipoPlan === 'G' && normalized.length > 6) {
+        const error = new Error("El plan funerario familiar admite hasta un máximo de 6 asegurados (titular y 5 familiares).");
+        error.statusCode = 400;
+        error.isOperational = true;
+        throw error;
+    }
+
+    const familiaresString = normalized.map(f => `${f.codParent}:${f.fecnac}`).join(',');
+    const result = await Portal.getFuneralRate({ indTipoPlan: tipoPlan, familiares: familiaresString });
+
+    if (result.permissionError) {
+        const error = new Error(result.permissionError);
+        error.statusCode = 403;
+        error.isOperational = true;
+        throw error;
+    }
+
+    if (result.error) {
+        const error = new Error(result.error, result.rawError ? { cause: result.rawError } : undefined);
+        error.statusCode = 500;
+        error.isOperational = true;
+        throw error;
+    }
+
+    const rows = result.data || [];
+    if (rows.length === 0) {
+        return {
+            found: false,
+            data: { planes: [], coberturas: [], tarifasIndividuales: [] },
+            message: "No existen planes funerarios disponibles para las edades o parentescos ingresados."
+        };
+    }
+
+    const parentCounts = new Map();
+    for (const fam of normalized) {
+        parentCounts.set(fam.codParent, (parentCounts.get(fam.codParent) || 0) + 1);
+    }
+
+    const planGroups = new Map();
+    for (const row of rows) {
+        const key = `${row.CODPLAN}-${row.REVPLAN}`;
+        if (!planGroups.has(key)) {
+            planGroups.set(key, {
+                codPlan: row.CODPLAN,
+                revPlan: row.REVPLAN,
+                descPlan: row.DESCPLAN,
+                indTipoPlan: row.INDTIPOPLAN || tipoPlan,
+                rows: []
+            });
+        }
+        planGroups.get(key).rows.push(row);
+    }
+
+    const planes = [];
+    const coberturas = [];
+    const tarifasIndividuales = [];
+
+    for (const group of planGroups.values()) {
+        const matchedIds = new Set();
+        let eligible = true;
+
+        for (const row of group.rows) {
+            if (row.PRIMACOBERT === null || row.PRIMACOBERT === undefined) {
+                eligible = false;
+                break;
+            }
+            const maxParent = row.MAXPARENT !== null && row.MAXPARENT !== undefined ? Number(row.MAXPARENT) : 99;
+            if ((parentCounts.get(row.CODPARENT) || 0) > maxParent) {
+                eligible = false;
+                break;
+            }
+            matchedIds.add(Number(row.ID_FAMILIAR));
+        }
+
+        if (!eligible || matchedIds.size !== normalized.length) {
+            continue;
+        }
+
+        const cobMap = new Map();
+        const indMap = new Map();
+        let primaTotal = 0;
+        let sumaAsegurada = 0;
+
+        for (const row of group.rows) {
+            const primaRow = Number(row.PRIMACOBERT || 0);
+            const sumaRow = Number(row.SUMAASEG || 0);
+            const dedRow = Number(row.DEDUCIBLE || 0);
+
+            primaTotal += primaRow;
+
+            if (
+                (row.CODPARENT === '0001' || row.CODPARENT === '0002') &&
+                (row.CODCOBERT === '1001' || sumaAsegurada === 0)
+            ) {
+                sumaAsegurada = sumaRow;
+            }
+
+            const cobKey = String(row.CODCOBERT);
+            if (!cobMap.has(cobKey)) {
+                cobMap.set(cobKey, {
+                    codPlan: group.codPlan,
+                    revPlan: group.revPlan,
+                    codCobert: cobKey,
+                    descCobert: row.DESCCOBERT,
+                    prima: 0,
+                    sumaAseg: sumaRow,
+                    deducible: dedRow
+                });
+            }
+            const cobEntry = cobMap.get(cobKey);
+            cobEntry.prima += primaRow;
+            if ((row.CODPARENT === '0001' || row.CODPARENT === '0002') && sumaRow > 0) {
+                cobEntry.sumaAseg = sumaRow;
+            }
+
+            const indKey = Number(row.ID_FAMILIAR);
+            if (!indMap.has(indKey)) {
+                indMap.set(indKey, {
+                    codParent: row.CODPARENT,
+                    edadFamiliar: Number(row.EDADFAMILIAR || 0),
+                    codPlan: group.codPlan,
+                    revPlan: group.revPlan,
+                    descPlan: group.descPlan,
+                    primaTotalIndividual: 0,
+                    sumaAseguradaPlan: sumaRow
+                });
+            }
+            indMap.get(indKey).primaTotalIndividual += primaRow;
+        }
+
+        planes.push({
+            codPlan: group.codPlan,
+            revPlan: group.revPlan,
+            descPlan: group.descPlan,
+            indTipoPlan: group.indTipoPlan,
+            primaTotal,
+            sumaAsegurada,
+            deducible: 0
+        });
+
+        coberturas.push(...cobMap.values());
+        tarifasIndividuales.push(...indMap.values());
+    }
+
+    if (planes.length === 0) {
+        return {
+            found: false,
+            data: { planes: [], coberturas: [], tarifasIndividuales: [] },
+            message: "No existen planes funerarios disponibles para las edades o parentescos ingresados."
+        };
+    }
+
+    return {
+        found: true,
+        data: { planes, coberturas, tarifasIndividuales },
+        message: "Tarifas funerarias obtenidas exitosamente."
+    };
+};
+
+export const getFullRateDetails = async ({ codProd = '1007', indTipoPlan, familiares }) => {
     if (!familiares || !Array.isArray(familiares) || familiares.length === 0) {
         const error = new Error("El campo familiares es requerido y debe ser un array con al menos un integrante.");
         error.statusCode = 400;
@@ -103,16 +349,26 @@ export const getFullRateDetails = async ({ familiares }) => {
         throw error;
     }
 
-    for (const fam of familiares) {
-        if (!fam.codParent || fam.edad === undefined || fam.edad === null || fam.edad === '') {
-            const error = new Error("Cada familiar debe incluir un codParent y una edad válidos.");
+    const normalized = familiares.map(fam => {
+        if (!fam.codParent) {
+            const error = new Error("Cada familiar debe incluir un codParent y una fecha de nacimiento o edad válidos.");
             error.statusCode = 400;
             error.isOperational = true;
             throw error;
         }
+        const resolved = resolveFechaNacAndEdad(fam);
+        return {
+            codParent: String(fam.codParent).trim(),
+            fecnac: resolved.fecnac,
+            edad: resolved.edad
+        };
+    });
+
+    if (String(codProd || '1007').trim() === '1010') {
+        return buildFuneralRateResponse({ indTipoPlan, normalized });
     }
 
-    const familiaresString = familiares.map(f => `${f.codParent}:${f.edad}`).join(',');
+    const familiaresString = normalized.map(f => `${f.codParent}:${f.fecnac}`).join(',');
 
     const result = await Portal.getFullRate({ familiares: familiaresString });
 
@@ -227,8 +483,8 @@ export const saveQuoteDetails = async ({
     codUsuCrea
 }) => {
     // 1. Validaciones de integridad básicas en la capa de servicio
-    if (!codProd || !nombreAseg || prima === undefined || !hcmPlan) {
-        const error = new Error("Los datos de cabecera y del plan HCM son obligatorios.");
+    if (!codProd || !nombreAseg || prima === undefined || prima === null || !hcmPlan) {
+        const error = new Error("Los datos de cabecera y del plan son obligatorios.");
         error.statusCode = 400;
         error.isOperational = true;
         throw error;
@@ -254,7 +510,7 @@ export const saveQuoteDetails = async ({
         stscot: 'VAL',
         codUsuCrea: codUsuCrea,
         
-        // Detalle HCM
+        // Detalle del plan (HCM / Funerario)
         hcmPlan: {
             codProd: hcmPlan.codProd || codProd,
             codPlan: hcmPlan.codPlan,
@@ -266,11 +522,15 @@ export const saveQuoteDetails = async ({
         },
 
         // Lista de asegurados / familiares repetibles (titular, cónyuge, hijos múltiples)
-        asegurados: asegurados.map(fam => ({
-            codParent: String(fam.codParent),
-            edad: Number(fam.edad),
-            prima: Number(fam.prima || 0)
-        })),
+        asegurados: asegurados.map(fam => {
+            const resolved = resolveFechaNacAndEdad(fam);
+            return {
+                codParent: String(fam.codParent),
+                fecnac: resolved.fecnac,
+                edad: resolved.edad,
+                prima: Number(fam.prima || 0)
+            };
+        }),
 
         // Desglose de coberturas del plan con sumaaseg_cob y prima_cob
         coberturas: (coberturas || []).map(cob => ({

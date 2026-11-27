@@ -7,7 +7,7 @@ import oracledb from 'oracledb';
  */
 export const PRODUCT_NAMES = {
   '1007': 'Salud HCM Individual',
-  '1010': 'Servicios Funerarios Individual',
+  '1010': 'Servicios Funerarios',
   '1001': 'Vida Individual',
   '1005': 'Accidentes Personales',
   'AUT': 'Automóvil'
@@ -260,12 +260,13 @@ export const getQuoteDetail = async (codcoti) => {
       SELECT 
         CODASEG,
         CODPARENT,
-        EDAD,
+        TO_CHAR(FECNAC, 'YYYY-MM-DD') AS FECNAC,
+        ROUND(MONTHS_BETWEEN(SYSDATE, FECNAC) / 12) AS EDAD,
         PRIMA,
         FECHACREA
       FROM ${asegTable}
       WHERE CODCOTI = :codcoti
-      ORDER BY CODPARENT ASC
+      ORDER BY CODASEG ASC
     `;
     const asegRes = await connection.execute(asegSql, { codcoti }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
@@ -299,8 +300,9 @@ export const getQuoteDetail = async (codcoti) => {
         codAseg: a.CODASEG,
         codParent: a.CODPARENT,
         descParent: getParentescoDescription(a.CODPARENT),
-        edad: Number(a.EDAD),
-        prima: Number(a.PRIMA)
+        fecnac: a.FECNAC || null,
+        edad: Number(a.EDAD || 0),
+        prima: Number(a.PRIMA || 0)
       })),
       coberturas: (cobRes.rows || []).map(c => ({
         codCob: c.CODCOB,
@@ -368,7 +370,7 @@ function formatQuoteRow(row) {
     primaTotal: Number(row.PRIMA_TOTAL || 0),
     sumaAsegurada: Number(row.SUMA_ASEG || 0),
     deducible: row.DEDUCIBLE != null ? Number(row.DEDUCIBLE) : null,
-    nombrePlan: row.NOMBREPLAN || 'Plan Salud Estándar',
+    nombrePlan: row.NOMBREPLAN || (codprod === '1010' ? 'Plan Funerario' : 'Plan Salud Estándar'),
     codPlan: row.CODPLAN,
     revPlan: row.REVPLAN,
     codInter: row.CODINTER,
@@ -392,6 +394,20 @@ function getParentescoDescription(codParent) {
     case '0006': return 'Hija';
     case '0007': return 'Padre';
     case '0008': return 'Madre';
+    case '0009': return 'Hermano';
+    case '0010': return 'Hermana';
+    case '0011': return 'Nieto';
+    case '0012': return 'Nieta';
+    case '0013': return 'Sobrino';
+    case '0014': return 'Sobrina';
+    case '0015': return 'Suegro';
+    case '0016': return 'Suegra';
+    case '0017': return 'Concubino';
+    case '0018': return 'Concubina';
+    case '0021': return 'Tío';
+    case '0022': return 'Tía';
+    case '0033': return 'Abuelo';
+    case '0034': return 'Abuela';
     default: return `Familiar (${codParent})`;
   }
 }

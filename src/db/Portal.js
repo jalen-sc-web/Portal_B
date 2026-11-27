@@ -373,6 +373,105 @@ const getFullRate = async (data) => {
   }
 };
 
+const getFuneralRate = async ({ indTipoPlan, familiares }) => {
+  let connection;
+
+  try {
+    connection = await getAcselConnection();
+
+    const query = `
+      WITH fam AS (
+        SELECT ROWNUM AS ID_FAMILIAR,
+               REGEXP_SUBSTR(item, '[^:]+', 1, 1) AS COD_PARENT,
+               TO_DATE(REGEXP_SUBSTR(item, '[^:]+', 1, 2), 'YYYY-MM-DD') AS FEC_NAC
+        FROM (
+          SELECT REGEXP_SUBSTR(:familiares, '[^,]+', 1, LEVEL) AS item
+          FROM DUAL
+          CONNECT BY REGEXP_SUBSTR(:familiares, '[^,]+', 1, LEVEL) IS NOT NULL
+        )
+      )
+      SELECT pp.CODPLAN,
+             pp.REVPLAN,
+             pp.INDTIPOPLAN,
+             NVL(pp.DESCPLANPROD, 'Plan Funerario') AS DESCPLAN,
+             cp.CODCOBERT,
+             NVL(cr.DESCCOBERT, 'GASTOS FUNERARIOS') AS DESCCOBERT,
+             NVL(cp.MTODEDMIN, 0) AS DEDUCIBLE,
+             f.ID_FAMILIAR,
+             f.COD_PARENT AS CODPARENT,
+             PR.CALC_EDAD(SYSDATE, f.FEC_NAC, NVL(rpp.INDEDADACT, 'N')) AS EDADFAMILIAR,
+             pr.PRIMACOBERT,
+             pr.SUMAASEG,
+             pr.EDADINI,
+             pr.EDADFIN,
+             pr.MAXPARENT
+      FROM ${acselTable("PLAN_PROD")} pp
+      JOIN ${acselTable("COBERT_PLAN_PROD")} cp
+        ON cp.CODPROD = pp.CODPROD
+       AND cp.CODPLAN = pp.CODPLAN
+       AND cp.REVPLAN = pp.REVPLAN
+      LEFT JOIN ${acselTable("COBERT_RAMO")} cr
+        ON cr.CODRAMO = cp.CODRAMOPLAN
+       AND cr.CODCOBERT = cp.CODCOBERT
+      LEFT JOIN ${acselTable("RAMO_PLAN_PROD")} rpp
+        ON rpp.CODPROD = pp.CODPROD
+       AND rpp.CODPLAN = pp.CODPLAN
+       AND rpp.REVPLAN = pp.REVPLAN
+       AND rpp.CODRAMOPLAN = cp.CODRAMOPLAN
+      CROSS JOIN fam f
+      LEFT JOIN ${acselTable("PRIMA_COBERT_PROD")} pr
+        ON pr.CODPROD = pp.CODPROD
+       AND pr.CODPLAN = pp.CODPLAN
+       AND pr.REVPLAN = pp.REVPLAN
+       AND pr.CODRAMOPLAN = cp.CODRAMOPLAN
+       AND pr.CODCOBERT = cp.CODCOBERT
+       AND pr.CODPARENT = f.COD_PARENT
+       AND PR.CALC_EDAD(SYSDATE, f.FEC_NAC, NVL(rpp.INDEDADACT, 'N')) BETWEEN pr.EDADINI AND pr.EDADFIN
+      WHERE pp.CODPROD = '1010'
+        AND pp.STSPLAN = 'ACT'
+        AND pp.FECFINVIG > SYSDATE
+        AND pp.INDCOTIWEB = 'S'
+        AND pp.INDTIPOPLAN = :indTipoPlan
+        AND cp.INDCOBERTOBLIG = 'S'
+        AND cp.STSCOBERT = 'ACT'
+      ORDER BY pp.CODPLAN, pp.REVPLAN, cp.CODCOBERT, f.ID_FAMILIAR
+    `;
+
+    const result = await connection.execute(
+      query,
+      { indTipoPlan, familiares },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+
+    return {
+      status: true,
+      data: result.rows || [],
+      message: "Tarifas funerarias obtenidas exitosamente.",
+    };
+  } catch (error) {
+    logger.error("Error al obtener tarifas funerarias", "PortalDB.getFuneralRate", {
+      error: serializeError(error),
+    });
+    return {
+      status: false,
+      error: "Error en la base de datos al consultar tarifas funerarias",
+      rawError: error,
+      message: "Error al obtener tarifas funerarias",
+    };
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (closeErr) {
+        logger.error(
+          "Error al cerrar la conexión a Oracle en getFuneralRate:",
+          closeErr,
+        );
+      }
+    }
+  }
+};
+
 export const saveQuote = async (data) => {
 
   if (!data) {
@@ -395,7 +494,7 @@ export const saveQuote = async (data) => {
   }
 
   if (!hcmPlan || !hcmPlan.codPlan) {
-    return { status: false, message: "LOS DATOS DEL PLAN HCM (HCMPLAN Y SU CODPLAN) SON OBLIGATORIOS." };
+    return { status: false, message: "LOS DATOS DEL PLAN (CODPLAN) SON OBLIGATORIOS." };
   }
 
   if (!Array.isArray(asegurados) || asegurados.length === 0) {
@@ -472,17 +571,22 @@ export const saveQuote = async (data) => {
     // 5. INSERTAR ASEGURADOS / FAMILIARES MÚLTIPLES EN WEBPORTAL.COTIZACION_HCM_ASEG
     const insertAsegQuery = `
       INSERT INTO WEBPORTAL.COTIZACION_HCM_ASEG (
-        CODCOTI, CODPARENT, EDAD, PRIMA, FECHACREA, CODUSUCREA
+        CODCOTI, CODPARENT, FECNAC, PRIMA, FECHACREA, CODUSUCREA
       ) VALUES (
-        :codCoti, :codParent, :edad, :prima, SYSTIMESTAMP, :codUsuCrea
+        :codCoti, :codParent, TO_DATE(:fecnac, 'YYYY-MM-DD'), :prima, SYSTIMESTAMP, :codUsuCrea
       )
     `;
 
     for (const fam of asegurados) {
+      const rawFec = fam.fecnac || fam.fechanac;
+      const fecnac = rawFec
+        ? String(rawFec).slice(0, 10)
+        : `${new Date().getFullYear() - Number(fam.edad || 0)}-01-01`;
+
       await connection.execute(insertAsegQuery, {
         codCoti,
         codParent: fam.codParent,
-        edad: fam.edad,
+        fecnac,
         prima: fam.prima !== undefined ? fam.prima : 0,
         codUsuCrea
       });
@@ -551,5 +655,6 @@ export default {
   getOwner,
   getRolesByCedula,
   getFullRate,
+  getFuneralRate,
   saveQuote
 };

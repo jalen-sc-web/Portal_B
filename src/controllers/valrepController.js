@@ -74,7 +74,8 @@ const getLval = async (req, res, next) => {
 
 const getParent = async (req, res, next) => {
     try {
-        const data = await valrepService.getParents();
+        const codprod = req.query.codprod || req.body?.codprod;
+        const data = await valrepService.getParents(codprod);
         return res.status(200).json({
             status: true,
             data,
